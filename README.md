@@ -1,10 +1,12 @@
 # EmocaoScripts
 
-abrirgbridgedb.py -> Script para abrir SQL gerado pelo GadgetBridge, e aplicá-lo em um modelo de predição de emoções.
+Heart Rate Analysis/HRSupervisedAnalysis.py -> Script para abrir SQL gerado pelo GadgetBridge, e aplicá-lo em um modelo supervisionado de predição de emoções (SVM, KNN ou RF).
 
-cvideotoframes.py -> Script para converter vídeo em frames (coleção de jpg).
+Heart Rate Analysis/HRNonSupervisedAnalysis.py -> Script para abrir SQL gerado pelo GadgetBridge, e aplicá-lo em um modelo não supervisionado de predição de emoções (KMeans).
 
-deeptest.py -> Script para usar os frames em biblioteca de reconhecimento de emoções através da face (deepface).
+videoToFrames.py -> Script para converter vídeo em frames (coleção de jpg).
+
+facialExpressionAnalysis.py -> Script para usar os frames em biblioteca de reconhecimento de emoções através da face (deepface).
 
 Assets/ -> Pasta com os Assets do projeto Unity (eye-tracking).
 
