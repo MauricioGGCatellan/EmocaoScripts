@@ -5,7 +5,9 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 import pandas as pd
 
-con = sqlite3.connect("Gadgetbridge")
+#Mudar dbname conforme nome da base de dados (obs: deve ser SQLite)
+dbname = "Gadgetbridge"
+con = sqlite3.connect(dbname)
 cursor = con.cursor()
 
 #Removendo artefatos de HR= 255 artifacts e ordenando por timestamp
