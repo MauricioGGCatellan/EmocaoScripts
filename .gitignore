@@ -2,3 +2,6 @@
 *.jpg
 *.csv
 ConsumidorDeJson/node_modules
+__pycache__
+HearRateAnalysis/Gadgetbridge
+Gadgetbridge
