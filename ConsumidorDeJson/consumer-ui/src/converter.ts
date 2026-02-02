@@ -1,5 +1,5 @@
 
-interface EmoData {
+export interface EmoData {
   timestamp: number;
   emotion: string;
 }

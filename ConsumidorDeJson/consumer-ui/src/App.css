@@ -1,20 +1,30 @@
 .gantt-container {
   display: flex;
   width: 100%;
+  flex-direction: column;
   height: 400px;
 }
 
-.gantt-menu {
-  width: 220px;
-  padding: 12px;
+.gantt-menu { 
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
   border-right: 1px solid #ccc;
   background-color: #f9f9f9;
   box-sizing: border-box;
 }
+ 
+.gantt-menu h4 {
+  margin: 0 12px 0 0;
+}
 
 .gantt-menu button {
-  width: 100%;
-  margin-bottom: 8px;
+  padding: 6px 12px;
+}
+
+.gantt-menu button.active {
+  background-color: #1976d2;
+  color: white;
 }
 
 .gantt-chart {
