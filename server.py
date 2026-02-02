@@ -8,6 +8,7 @@ from HeartRateAnalysis.HRSupervisedAnalysis import HRAnalyze
 
 app = FastAPI()
 
+#Desenvolver stub para testar 
 
 @app.get("/")
 def read_root():
