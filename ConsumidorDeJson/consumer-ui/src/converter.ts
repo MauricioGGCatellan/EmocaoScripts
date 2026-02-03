@@ -25,9 +25,13 @@ type GanttRow = [
   string | null     // Dependencies
 ];
 
-type GanttTable = [GanttColumn[], ...GanttRow[]];
+export type GanttTable = [GanttColumn[], ...GanttRow[]];
  
 export function jsonToGantt(jsonData: EmoData[][]){
+
+    if(!jsonData){
+        return [];
+    }
 
     let ganttData: GanttTable[] = [];
 
@@ -45,6 +49,10 @@ export function jsonToGantt(jsonData: EmoData[][]){
             { type: "number", label: "Percent Complete" },
             { type: "string", label: "Dependencies" },
             ],]) - 1;
+
+        if(!jsonList[0]){
+            continue;
+        }
 
         let previousEmotion = jsonList[0].emotion;
         let firstTimeStamp = jsonList[0].timestamp;

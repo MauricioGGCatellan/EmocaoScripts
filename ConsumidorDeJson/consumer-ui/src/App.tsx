@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react' 
 import './App.css' 
 import { Chart, type ReactGoogleChartEvent  } from "react-google-charts"; 
-import {jsonToGantt} from "./converter.ts";
+import {jsonToGantt} from "./converter.ts"; 
+import type { EmoData, GanttTable } from './converter.ts';
+import { fetchFerEmoData, fetchHrEmoData } from './datamanager.ts';
 
 //formato dos dados recebidos
 //[timestamp, [emotions]]
  
 //Timestamp em segundos
+/*
 const jsonData = [[
     {
         "timestamp": 1746368750,
@@ -82,9 +85,8 @@ const jsonData = [[
         "timestamp": 1746368849,
         "emotion": "angry"
     },]];
-
-const ganttData = jsonToGantt(jsonData);
-
+*/
+ 
 const optionsGantt = {
   height: 400,
   gantt: {
@@ -98,9 +100,11 @@ const optionsGantt = {
   }
 };
   
-  function App() { 
+function App() {   
+  const [ganttAllData, setGanttAllData] = useState<GanttTable[]>([]) 
+  const [jsonData, setJsonData] = useState<EmoData[][]>([[]])
 
-    const [dataGantt, setDataGantt] = useState(ganttData[0]);
+  const [dataGantt, setDataGantt] = useState(ganttAllData[0]);
   
   const [selectedPerson, setSelectedPerson] = useState(1);
   
@@ -118,20 +122,37 @@ const optionsGantt = {
   }, 
   ];
 
- useEffect(() => { 
+  useEffect(() => { 
     const w = window as any;
     
     // força inicialização global
     w.google?.charts?.load("current", { packages: ["gantt"] });
     w.google?.charts?.setOnLoadCallback(() => { 
     });
+    
+    fetchFerEmoData().then((res) => {
+      const ferEmoData = []
+      ferEmoData.push(res)
+
+      setJsonData(ferEmoData as EmoData[][]);
+    });
+
   }, []);
   
   useEffect(() => {
+    setGanttAllData(jsonToGantt(jsonData)); 
+  }, [jsonData])
+
+  useEffect(() => {
     //mudar dados
     console.log(selectedPerson);
-    setDataGantt(ganttData[selectedPerson - 1]);
-  }, [selectedPerson])
+    
+    if(!ganttAllData[selectedPerson-1]){
+      return;
+    }
+    
+    setDataGantt(ganttAllData[selectedPerson - 1]);
+  }, [selectedPerson, ganttAllData])
 
   return (
     <div className="gantt-container">

@@ -5,7 +5,7 @@ export async function fetchFerEmoData(){
     const videoName = 'lalala';
 
     try {
-        const response = await axios.get<EmoData[]>(`https://localhost:5000/face/{videoName}`, {
+        const response = await axios.get<EmoData[]>(`http://127.0.0.1:8000/face/${videoName}`, {
             params: {
                 videoName: videoName
             }
@@ -15,6 +15,8 @@ export async function fetchFerEmoData(){
 
         console.log(emosData);
 
+        return emosData;
+
     } catch (error: any) {
         console.error('Error during fetching:', error.message);
     } 
@@ -22,7 +24,7 @@ export async function fetchFerEmoData(){
 
 export async function fetchHrEmoData(method:string){
     try {
-        const response = await axios.get<EmoData[]>(`https://localhost:5000//hr/{method}`, {
+        const response = await axios.get<EmoData[]>(`http://127.0.0.1:8000/hr/${method}`, {
             params: {
                 method: method
             }
@@ -31,6 +33,8 @@ export async function fetchHrEmoData(method:string){
         const emosData = response.data; 
 
         console.log(emosData);
+
+        return emosData;
 
     } catch (error: any) {
         console.error('Error during fetching:', error.message);
