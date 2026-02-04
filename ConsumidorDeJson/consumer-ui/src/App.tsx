@@ -4,88 +4,11 @@ import { Chart, type ReactGoogleChartEvent  } from "react-google-charts";
 import {jsonToGantt} from "./converter.ts"; 
 import type { EmoData, GanttTable } from './converter.ts';
 import { fetchFerEmoData, fetchHrEmoData } from './datamanager.ts';
+import {Select, InputLabel, MenuItem, FormControl} from '@mui/material';  
+import type { SelectChangeEvent } from "@mui/material/Select";
 
 //formato dos dados recebidos
 //[timestamp, [emotions]]
- 
-//Timestamp em segundos
-/*
-const jsonData = [[
-    {
-        "timestamp": 1746368750,
-        "emotion": "fear"
-    },
-    {
-        "timestamp": 1746368778,
-        "emotion": "neutral"
-    },
-    {
-        "timestamp": 1746368779,
-        "emotion": "neutral"
-    },
-    {
-        "timestamp": 1746368780,
-        "emotion": "neutral"
-    },
-    {
-        "timestamp": 1746368840,
-        "emotion": "angry"
-    },
-    {
-        "timestamp": 1746368841,
-        "emotion": "angry"
-    },],
-     [
-    {
-        "timestamp": 1746368776,
-        "emotion": "sad"
-    },
-    {
-        "timestamp": 1746368778,
-        "emotion": "surprised"
-    },
-    {
-        "timestamp": 1746368779,
-        "emotion": "surprised"
-    },
-    {
-        "timestamp": 1746368780,
-        "emotion": "surprised"
-    },
-    {
-        "timestamp": 1746368840,
-        "emotion": "angry"
-    },
-    {
-        "timestamp": 1746368866,
-        "emotion": "angry"
-    },],
-    [
-    {
-        "timestamp": 1746368776,
-        "emotion": "happy"
-    },
-    {
-        "timestamp": 1746368778,
-        "emotion": "fear"
-    },
-    {
-        "timestamp": 1746368779,
-        "emotion": "fear"
-    },
-    {
-        "timestamp": 1746368780,
-        "emotion": "fear"
-    },
-    {
-        "timestamp": 1746368840,
-        "emotion": "angry"
-    },
-    {
-        "timestamp": 1746368849,
-        "emotion": "angry"
-    },]];
-*/
  
 const optionsGantt = {
   height: 400,
@@ -106,8 +29,10 @@ function App() {
 
   const [dataGantt, setDataGantt] = useState(ganttAllData[0]);
   
-  const [selectedPerson, setSelectedPerson] = useState(1);
+  const [selectedPerson, setSelectedPerson] = useState<number>(1);
   
+  const [method, setMethod] = useState<string>("FER");
+
   const chartEvents: ReactGoogleChartEvent[] = [ 
   {
     eventName: "ready",
@@ -154,15 +79,44 @@ function App() {
     setDataGantt(ganttAllData[selectedPerson - 1]);
   }, [selectedPerson, ganttAllData])
 
+  const handleChange = (event: SelectChangeEvent<number>) => {
+    setSelectedPerson(Number(event.target.value));
+  };
+
+  const handleMethodChange = (event: SelectChangeEvent<string>) => {
+    setMethod(event.target.value);
+  };
+
   return (
     <div className="gantt-container">
-     <aside className="gantt-menu">
-      <h4>Menu</h4>
+      <aside className="gantt-menu">
+      <FormControl fullWidth size="small">
+        <InputLabel id="player-select-label">Player</InputLabel>
 
-      <button onClick={() => {if(selectedPerson != 1) setSelectedPerson(1)} }>Player 1</button>
-      <button onClick={() => {if(selectedPerson != 2) setSelectedPerson(2)} }>Player 2</button>
-      <button onClick={() => {if(selectedPerson != 3) setSelectedPerson(3)} }>Player 3</button>
- 
+        <Select
+          labelId="player-select-label"
+          value={selectedPerson}
+          label="Player"
+          onChange={handleChange}
+        >
+          <MenuItem value={1}>Player 1</MenuItem>
+          <MenuItem value={2}>Player 2</MenuItem>
+          <MenuItem value={3}>Player 3</MenuItem>
+        </Select>
+
+      </FormControl>
+    <FormControl fullWidth size="small">
+    <InputLabel id="method-select-label">Method</InputLabel> 
+        <Select
+          labelId="method-select-label"
+          value={method}
+          label="Method"
+          onChange={handleMethodChange}
+        >
+          <MenuItem value={"FER"}>FER</MenuItem>
+          <MenuItem value={"HR"}>HR</MenuItem> 
+        </Select>
+    </FormControl>
     </aside>
       <div className="gantt-chart">
          <Chart
