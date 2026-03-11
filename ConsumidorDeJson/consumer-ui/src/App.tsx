@@ -6,10 +6,12 @@ import type { EmoData, GanttTable } from './converter.ts';
 import { fetchFerEmoData, fetchHrEmoData } from './datamanager.ts';
 import {Select, InputLabel, MenuItem, FormControl} from '@mui/material';  
 import type { SelectChangeEvent } from "@mui/material/Select";
+import { GanttChart } from './components/GanttChart.tsx';
 
 //formato dos dados recebidos
-//[timestamp, [emotions]]
- 
+//[timestamp, [emotions]] 
+
+/*
 const optionsGantt = {
   height: 400,
   gantt: {
@@ -21,6 +23,28 @@ const optionsGantt = {
   backgroundColor:{
     fill: 'white'
   }
+};
+*/
+const tasksTestD3 = [ 
+{ 
+    startDate: new Date(2026, 2, 9, 1, 36, 45),
+    endDate: new Date(2026, 2, 9, 2, 36, 45),
+    taskName: "C1",
+    status: "FAILED"
+}, 
+{
+    startDate: new Date(2026, 2, 9, 4, 56, 32),
+    endDate: new Date(2026, 2, 9, 6, 35, 47),
+    taskName: "C2",
+    status: "RUNNING"
+}]; 
+
+const taskNamesTestD3 = [ "C1", "C2"];
+const taskStatusTestD3 = { 
+    "SUCCEEDED": "bar",
+    "FAILED": "bar-failed",
+    "RUNNING": "bar-running",
+    "KILLED": "bar-killed"
 };
   
 function App() {   
@@ -54,15 +78,29 @@ function App() {
     w.google?.charts?.load("current", { packages: ["gantt"] });
     w.google?.charts?.setOnLoadCallback(() => { 
     });
-    
-    fetchFerEmoData().then((res) => {
+      
+  }, []);
+
+  useEffect(() => {
+    if(method == 'FER'){
+      fetchFerEmoData().then((res) => {
       const ferEmoData = []
       ferEmoData.push(res)
 
       setJsonData(ferEmoData as EmoData[][]);
-    });
+      });
+    } else if(method == 'HR'){
+      fetchHrEmoData('KNN').then((res) => {
+        const hrEmoData = []
+        hrEmoData.push(res)
 
-  }, []);
+        setJsonData(hrEmoData as EmoData[][])
+      });
+    } else{
+      console.log("Unknown method inputted")
+    }
+
+  }, [method]);
   
   useEffect(() => {
     setGanttAllData(jsonToGantt(jsonData)); 
@@ -119,15 +157,7 @@ function App() {
     </FormControl>
     </aside>
       <div className="gantt-chart">
-         <Chart
-            chartType="Gantt" 
-            height="400px"
-            width="100%"  
-            options={optionsGantt}
-            data={dataGantt} 
-            loader={<div>Loading chart...</div>}
-            chartEvents={chartEvents}   
-         /> 
+         <GanttChart tasks={tasksTestD3} taskNames={taskNamesTestD3} taskStatus={taskStatusTestD3}/>
       </div>
     </div>
   )

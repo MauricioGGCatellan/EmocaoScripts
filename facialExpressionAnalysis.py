@@ -6,23 +6,27 @@ import json
 
 def faceAnalyze(imgName, dataName, time):
     objs = {}
+    jsonObjs = {}
     try:
         objs = DeepFace.analyze(
             img_path = imgName, 
             actions = ['gender', 'race', 'emotion'],
+            model_name = "Facenet"
         ) 
         
         #time é um marcador de timestamp com referencial no próprio vídeo
+        jsonObjs.append({'timestamp': time, 'emotion': objs['dominant_emotion']})
+
         objs.append({'timestamp': time})
         print(objs)
 
         with open(dataName, 'w') as f:
             json.dump(objs, f, indent=4)
         
-        return objs
+        return jsonObjs
     except:
         print("Falhou em entender a foto!")
-        return objs
+        return jsonObjs
 
 def framesAnalyze(imgQuant, dataQuant):
     #Alterar imgQuant conforme numero de frames
