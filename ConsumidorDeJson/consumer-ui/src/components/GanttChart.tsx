@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 declare const d3: any; 
 
-type Task = { 
+export type Task = { 
   startDate: Date;
   endDate: Date;
   taskName: string;
@@ -34,9 +34,9 @@ export function GanttChart({ tasks, taskNames, taskStatus, width = 800, height =
     // limpa renderizações anteriores
     svg.selectAll("*").remove();
  
-    const d3gantt = d3.gantt().taskTypes(taskNames).taskStatus(taskStatus)
-      .selector(svgRef.current).timeDomain([start, end]).zoomEnabled(false)
-      .timeDomainMode("fixed")
+    const d3gantt = d3.gantt()
+      .selector(svgRef.current).timeDomain([start, end]).zoomEnabled(false) 
+      .taskTypes(taskNames).taskStatus(taskStatus)
 
     const svgCall = svg   
       .datum(tasks)

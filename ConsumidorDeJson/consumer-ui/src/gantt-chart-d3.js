@@ -24,7 +24,7 @@ d3.gantt = function() {
     // We default to FIT so a basic chart "just works" without explicit domain settings.
     var timeDomainMode = FIT_TIME_DOMAIN_MODE;
     var taskTypes = [];
-    var taskStatus = [];
+    var taskStatus = {};
 	var currentTasks = [];
     
     var height = (document.body.clientHeight) - margin.top - margin.bottom-5;
@@ -92,6 +92,7 @@ d3.gantt = function() {
 
 	function refreshBarClassOrder() {
 		barClassOrder = [];
+		 
 		if (taskStatus) {
 			Object.keys(taskStatus).forEach(function(key) {
 				var className = taskStatus[key];
@@ -102,15 +103,15 @@ d3.gantt = function() {
 		}
 	}
 
-	function getBaseBarClass(d) {
-		if (d && taskStatus && taskStatus[d.status]) {
+	function getBaseBarClass(d) { 
+		if (d && taskStatus && taskStatus[d.status]) {  
 			return taskStatus[d.status];
 		}
 		return "bar";
 	}
 
-	function getConditionalBarClass(d) {
-		if (!d || d.status !== "PERGUNTA") {
+	function getConditionalBarClass(d) {  
+		if (!d || d.status !== "PERGUNTA") { 
 			return "";
 		}
 		var hasSelected = typeof d.selectedAlternative === "number";
@@ -158,7 +159,7 @@ d3.gantt = function() {
 
 	function getBarFill(d) {
 		var conditionalClass = getConditionalBarClass(d);
-		if (conditionalClass) {
+		if (!conditionalClass) {
 			return null;
 		}
 		return getBarColor(d);
@@ -177,8 +178,7 @@ d3.gantt = function() {
 		// Translate each task group to its x/y position.
 		// Using a group transform keeps the bar, icon, and subchart
 		// aligned as one unit, and makes transitions simpler.
- 
-		console.log(d)
+  
 		var xPos = (d && typeof d.x === "number") ? d.x : xScale(d.startDate);
 		var yPos = (d && typeof d.y === "number") ? d.y : (renderRowLayout[d.taskName] ? renderRowLayout[d.taskName].y : 0);
 		return "translate(" + xPos + "," + yPos + ")";
@@ -217,8 +217,7 @@ d3.gantt = function() {
 	}
 
 	refreshBarClassOrder();
-    var xScale = d3.time.scale().domain([ timeDomainStart, timeDomainEnd ]).range([ 0, width ]).clamp(true);
-	console.log(xScale)
+    var xScale = d3.time.scale().domain([ timeDomainStart, timeDomainEnd ]).range([ 0, width ]).clamp(true); 
 	// the y axis is not used anymore, rowLayout deals with it
     //var y = d3.scale.ordinal().domain(taskTypes).rangeRoundBands([ 0, height - margin.top - margin.bottom ], .1);
 
@@ -603,16 +602,11 @@ d3.gantt = function() {
 		// Convert raw task data into render-ready bar objects.
 		// This precomputes x/y/width/height, visibility, and subchart layout
 		// so the render layer only reads values (no heavy computation).
-		var barData = [];
-		console.log(tasks)
+		var barData = []; 
 		tasks.forEach(function(task) {
 			var row = renderRowLayout[task.taskName];
 			var xStart = xScale(task.startDate);
-			var xEnd = xScale(task.endDate);
- 
-			console.log(xStart)
-			console.log(xEnd)
-			console.log(task.startDate)
+			var xEnd = xScale(task.endDate); 
 
 			var widthValue = Math.max(0, xEnd - xStart);
 			var heightValue = row ? row.height : 0;
@@ -1264,6 +1258,7 @@ d3.gantt = function() {
 			return taskStatus;
 		taskStatus = value;
 		refreshBarClassOrder();
+ 
 		return gantt;
     };
 

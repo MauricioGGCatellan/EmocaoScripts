@@ -1,82 +1,82 @@
 
+import type { Task } from "./components/GanttChart";
+
 export interface EmoData {
   timestamp: number;
   emotion: string;
 }
-
-type GanttColumn =
-  | { type: "string"; label: "Task ID" }
-  | { type: "string"; label: "Task Name" }
-  | { type: "string"; label: "Resource" }
-  | { type: "date"; label: "Start Date" }
-  | { type: "date"; label: "End Date" }
-  | { type: "number"; label: "Duration" }
-  | { type: "number"; label: "Percent Complete" }
-  | { type: "string"; label: "Dependencies" };
-
-type GanttRow = [
-  string,           // Task ID
-  string,           // Task Name
-  string,           // Resource
-  Date,             // Start Date
-  Date,             // End Date
-  number | null,    // Duration
-  number | null,    // Percent Complete
-  string | null     // Dependencies
-];
-
-export type GanttTable = [GanttColumn[], ...GanttRow[]];
  
-export function jsonToGantt(jsonData: EmoData[][]){
-
-    if(!jsonData){
+export function jsonToGantt(jsonData: EmoData[]): any[]{
+    if(!jsonData || jsonData.length < 1){
         return [];
     }
 
-    let ganttData: GanttTable[] = [];
+    const ganttData: Task[] = [];
 
-    let id = "1";
-
+    let previousEmotion = jsonData[0].emotion;
+    let firstTimeStamp = jsonData[0].timestamp;
     //jsonData: diferentes pessoas
-    for(const jsonList of jsonData){
-        let ganttIndex = ganttData.push([[
-            { type: "string", label: "Task ID" },
-            { type: "string", label: "Task Name" }, 
-            { type: "string", label: "Resource"},
-            { type: "date", label: "Start Date" },
-            { type: "date", label: "End Date" },
-            { type: "number", label: "Duration" },
-            { type: "number", label: "Percent Complete" },
-            { type: "string", label: "Dependencies" },
-            ],]) - 1;
+    for(const jsonList of jsonData){ 
 
-        if(!jsonList[0]){
+        if(!jsonList){
+            continue;
+        } 
+
+        let timestamp = jsonList.timestamp;
+        let emotion = jsonList.emotion;
+
+        if(emotion === previousEmotion){
+            continue;
+        }
+            
+        //Pensar em como trazer a cena
+
+        const newTask: Task = {
+            startDate: new Date(firstTimeStamp*1e3),
+            endDate: new Date(timestamp*1e3),
+            taskName: "C1",
+            status: previousEmotion
+        }
+
+            ganttData.push(newTask);
+  
+            //atualiza
+            previousEmotion = emotion;
+            firstTimeStamp = timestamp;  
+    }
+
+        //salvar o final (última emoção medida) 
+    const lastTask: Task = {
+        startDate: new Date(firstTimeStamp*1e3),
+        endDate: new Date(jsonData[jsonData.length - 1].timestamp*1e3),
+        taskName: "C1",
+        status: previousEmotion
+    }
+
+    ganttData.push(lastTask);
+        
+    return ganttData 
+}
+
+export function jsonToAllEmotions(jsonData: EmoData[]): string[]{
+    if(!jsonData || jsonData.length < 1){
+        return [];
+    }
+
+    const allEmosStyles: any = [];
+    const allEmos: string[] = [];
+    const styleStr = "bar-";
+
+    for(const jsonOne of jsonData){
+        if(allEmos.some((emo) =>{
+            return emo === jsonOne.emotion;        
+        })){
             continue;
         }
 
-        let previousEmotion = jsonList[0].emotion;
-        let firstTimeStamp = jsonList[0].timestamp;
-
-        for(const jsonOne of jsonList){
-            let timestamp = jsonOne.timestamp;
-            let emotion = jsonOne.emotion;
-
-            if(emotion === previousEmotion){
-                continue;
-            }
-            
-            //Pensar em como trazer a cena
-            ganttData[ganttIndex].push([id, "C1", previousEmotion, new Date(firstTimeStamp*1e3), new Date(timestamp*1e3), null, null, null])
-            
-            //atualiza
-            previousEmotion = emotion;
-            firstTimeStamp = timestamp; 
-            id = id + 1;
-        }
-
-        //salvar o final (última emoção medida)
-        ganttData[ganttIndex].push([id, "C1", previousEmotion, new Date(firstTimeStamp*1e3), new Date(jsonList[jsonList.length - 1].timestamp*1e3), null, null, null])
+        allEmos.push(jsonOne.emotion);
+        allEmosStyles[jsonOne.emotion] = styleStr + allEmos.length
     }
- 
-    return ganttData 
+     
+    return allEmosStyles;
 }
