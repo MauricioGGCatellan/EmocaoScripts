@@ -3,7 +3,7 @@ import './App.css';
 import {jsonToGantt, jsonToAllEmotions} from "./converter.ts"; 
 import type { EmoData } from './converter.ts';
 import { fetchFerEmoData, fetchHrEmoData } from './datamanager.ts';
-import {Select, InputLabel, MenuItem, FormControl} from '@mui/material';  
+import {Select, InputLabel, MenuItem, FormControl, CircularProgress} from '@mui/material';  
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { GanttChart } from './components/GanttChart.tsx';
 import type {Task} from "./components/GanttChart.tsx";
@@ -39,24 +39,44 @@ function App() {
   const [selectedPerson, setSelectedPerson] = useState<number>(1);
   
   const [method, setMethod] = useState<string>("FER");
+
+  const [loading, setLoading] = useState<boolean>(false);
   
   useEffect(() => {
+  const controller = new AbortController();
+  const signal = controller.signal;   
+
+    setLoading(true);
     if(method == 'FER'){
-      fetchFerEmoData().then((res) => {
+      fetchFerEmoData(signal).then((res) => {
       const ferEmoData = res
 
       setJsonData(ferEmoData as EmoData[]);
-      });
+      }).catch(err => {
+        console.log(err)
+      }).finally( () => {
+        setLoading(false);
+      }
+      );
     } else if(method == 'HR'){
-      fetchHrEmoData('KNN').then((res) => {
+      fetchHrEmoData('knn', signal).then((res) => {
         const hrEmoData = res
 
         setJsonData(hrEmoData as EmoData[])
-      });
+      }).catch(err => {
+        console.log(err)
+      }).finally( () => {
+        setLoading(false);
+      }
+      );
     } else{
+      setLoading(false);
       console.log("Unknown method inputted")
     }
 
+    return () => {
+      controller.abort();
+    };
   }, [method]);
   
   useEffect(() => {
@@ -120,7 +140,15 @@ function App() {
     </FormControl>
     </aside>
       <div className="gantt-chart">
-         <GanttChart tasks={dataGantt} taskNames={taskNamesTestD3} taskStatus={allEmos}/>
+         {
+         loading? (
+          <div className="loading-container">
+            <CircularProgress/>
+          </div>
+         )  : <div/>
+        }
+        
+          <GanttChart tasks={dataGantt} taskNames={taskNamesTestD3} taskStatus={allEmos}/>
       </div>
     </div>
   )

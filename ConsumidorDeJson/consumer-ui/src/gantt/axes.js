@@ -110,8 +110,7 @@ function createAxisManager(d3) {
 		var width = params.width;
 		var focusTask = params.focusTask;
 		var xAxisDistortion = !!params.xAxisDistortion;
-
-		console.log(timeDomainStart, timeDomainEnd)
+ 
 		var base = d3.time.scale()
 			.domain([ timeDomainStart, timeDomainEnd ])
 			.range([ 0, width ])

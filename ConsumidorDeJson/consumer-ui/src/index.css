@@ -487,3 +487,11 @@ rect{
 .bar-10 {
 	fill: #17becf;
 }
+
+.loading-container{
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	height: 100%;
+	width: 100%;
+}

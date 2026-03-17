@@ -5,3 +5,6 @@ ConsumidorDeJson/node_modules
 __pycache__
 HearRateAnalysis/Gadgetbridge
 Gadgetbridge
+HeartRateAnalysis/HR_output
+HeartRateAnalysis/OLDHR_output
+ferdata/ferData.json

@@ -1,41 +1,15 @@
 #fastapi
-from typing import Union 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from videoToFrames import videoToFrames
+from videoToFrames import getInitTimestamp
 from facialExpressionAnalysis import framesAnalyze 
 from HeartRateAnalysis.HRSupervisedAnalysis import HRAnalyze
 
-def stub():
-    jsonData = [
-        {
-            "timestamp": 1746368750,
-            "emotion": "fear"
-        },
-        {
-            "timestamp": 1746368778,
-            "emotion": "neutral"
-        },
-        {
-            "timestamp": 1746368779,
-            "emotion": "neutral"
-        },
-        {
-            "timestamp": 1746368780,
-            "emotion": "neutral"
-        },
-        {
-            "timestamp": 1746368840,
-            "emotion": "angry"
-        },
-        {
-            "timestamp": 1746368841,
-            "emotion": "angry"
-        },]
-
-    return jsonData
-
+import os
+import json
+  
 app = FastAPI()
 
 origins = [
@@ -58,17 +32,31 @@ def read_root():
 #videoName = '2025-06-26 11-19-28.mkv'
 @app.get("/face/{videoName}")
 def face_analyze(videoName):
-    #frameCount = videoToFrames(videoName)
-    #emoData = framesAnalyze(frameCount, 10)
-
-    emoData = stub()
+    frameCount = 0
+    directory_path = "./frames"
+    if not any(os.scandir(directory_path)):
+        frameCount = videoToFrames(videoName)
+    else:
+        frameCount = len([name for name in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, name))])
+    
+ 
+    output_path = "./ferdata/ferData.json"
+    if not os.path.isfile(output_path):
+        initTimeStamp = getInitTimestamp()
+        emoData = framesAnalyze(frameCount, 60, initTimeStamp)
+    else:
+        with open(output_path, 'r') as f:
+            emoData = json.load(f)
 
     return emoData
 
 @app.get("/hr/{method}")
 def hr_analyze(method):
-    #emoData = HRAnalyze(method)
-    
-    emoData = stub()
-    
+    output_path = "./HeartRateAnalysis/HR_output.json"
+    if not os.path.isfile(output_path):
+        emoData = HRAnalyze(method)
+    else:
+        with open(output_path, 'r') as f:
+            emoData = json.load(f)
+    print(emoData)
     return emoData
