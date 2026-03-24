@@ -79,3 +79,13 @@ export function jsonToAllEmotions(jsonData: EmoData[]): string[]{
      
     return allEmosStyles;
 }
+
+export function jsonToDuration(jsonData: EmoData[]){
+    if(!jsonData || jsonData.length < 1){
+        return 0;
+    }
+    
+    const durationTimestamp = jsonData[jsonData.length - 1].timestamp - jsonData[0].timestamp
+
+    return durationTimestamp
+}

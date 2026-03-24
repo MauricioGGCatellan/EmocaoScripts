@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'; 
 import './App.css';  
-import {jsonToGantt, jsonToAllEmotions} from "./converter.ts"; 
+import {jsonToGantt, jsonToAllEmotions, jsonToDuration} from "./converter.ts"; 
 import type { EmoData } from './converter.ts';
 import { fetchFerEmoData, fetchHrEmoData, fetchVerticalAxisData } from './datamanager.ts';
-import {Select, InputLabel, MenuItem, FormControl, CircularProgress} from '@mui/material';  
+import {Select, InputLabel, MenuItem, FormControl, CircularProgress, FormLabel, Box, Typography} from '@mui/material';  
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { GanttChart } from './components/GanttChart.tsx';
 import type {Task} from "./components/GanttChart.tsx";
@@ -22,7 +22,20 @@ function App() {
   const [method, setMethod] = useState<string>("FER");
 
   const [loading, setLoading] = useState<boolean>(false);
+
+  const [duration, setDuration] = useState<number>(0);
  
+  const boxStyle = {
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between", 
+        padding: "8px 12px",
+        border: "1px solid #ccc",
+        backgroundColor: "#f9f9f9",
+        boxSizing: "border-box",
+        height: "72px",
+        borderRadius: "4px"
+      }
   useEffect(() => {
   const controller = new AbortController();
   const signal = controller.signal;   
@@ -77,6 +90,8 @@ function App() {
     console.log(allEmotions);
 
     setAllEmos(allEmotions);
+
+    setDuration(jsonToDuration(jsonData))
   }, [jsonData, verticalAxisData])
 
   useEffect(() => {
@@ -103,31 +118,64 @@ function App() {
     <div className="gantt-container">
       <aside className="gantt-menu">
       <FormControl fullWidth size="small">
-        <InputLabel id="player-select-label">Player</InputLabel>
-
-        <Select
-          labelId="player-select-label"
-          value={selectedPerson}
-          label="Player"
-          onChange={handleChange}
-        >
-          <MenuItem value={1}>Player 1</MenuItem>
-          <MenuItem value={2}>Player 2</MenuItem>
-          <MenuItem value={3}>Player 3</MenuItem>
-        </Select>
+        <Box sx={boxStyle}>  
+          <Select 
+            value={selectedPerson} 
+            onChange={handleChange}
+          >
+            <MenuItem value={1}>Player 1</MenuItem>
+            <MenuItem value={2}>Player 2</MenuItem>
+            <MenuItem value={3}>Player 3</MenuItem>
+          </Select>
+          <Typography variant="body2">
+            Jogador
+          </Typography>
+        </Box>
 
       </FormControl>
     <FormControl fullWidth size="small">
-    <InputLabel id="method-select-label">Method</InputLabel> 
-        <Select
-          labelId="method-select-label"
-          value={method}
-          label="Method"
-          onChange={handleMethodChange}
-        >
-          <MenuItem value={"FER"}>FER</MenuItem>
-          <MenuItem value={"HR"}>HR</MenuItem> 
-        </Select>
+      <Box sx={boxStyle}>  
+            <Select 
+              value={method} 
+              onChange={handleMethodChange}
+            >
+              <MenuItem value={"FER"}>FER</MenuItem>
+              <MenuItem value={"HR"}>HR</MenuItem> 
+            </Select>
+            <Typography variant="body2">
+              Método
+          </Typography>
+      </Box>
+    </FormControl>
+    <FormControl className='gantt-menu' fullWidth size="small">
+      <Box sx={boxStyle}>
+        <Typography variant="body2">
+          {duration==0 ? '--' : duration}s
+        </Typography>
+        <Typography variant="body2">
+          Duração da partida
+        </Typography>
+      </Box> 
+    </FormControl>
+    <FormControl fullWidth size="small">
+      <Box sx={boxStyle}>
+        <Typography variant="body2">
+          ----
+        </Typography>
+        <Typography variant="body2">
+          Info extra 1
+        </Typography>
+      </Box>   
+    </FormControl>
+    <FormControl fullWidth size="small">
+      <Box sx={boxStyle}>
+        <Typography variant="body2">
+          ----
+        </Typography>
+        <Typography variant="body2">
+          Info extra 2
+        </Typography>
+      </Box>   
     </FormControl>
     </aside>
       <div className="gantt-chart">
