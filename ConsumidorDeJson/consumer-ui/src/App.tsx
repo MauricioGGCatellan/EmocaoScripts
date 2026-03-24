@@ -41,7 +41,7 @@ function App() {
   const [method, setMethod] = useState<string>("FER");
 
   const [loading, setLoading] = useState<boolean>(false);
-  
+   
   useEffect(() => {
   const controller = new AbortController();
   const signal = controller.signal;   

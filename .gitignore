@@ -1,6 +1,7 @@
 *.json
 *.jpg
 *.csv
+*.mp4
 ConsumidorDeJson/node_modules
 __pycache__
 HearRateAnalysis/Gadgetbridge

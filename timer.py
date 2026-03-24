@@ -1,7 +1,22 @@
-import cv2
-import sqlite3 
-from datetime import timedelta
+import sqlite3
+import pandas  
+import json
+import numpy as np 
 
+def removeTimeOutliers(data):
+    Q1 = data.quantile(0.25)
+    Q3 = data.quantile(0.75)
+    IQR = Q3 - Q1
+    lower = Q1 - 1.5*IQR
+    upper = Q3 + 1.5*IQR
+ 
+    upper_array = np.where(data>= upper)[0]
+    lower_array = np.where(data <= lower)[0]
+
+    data.drop(index=upper_array, inplace=True)
+    data.drop(index=lower_array, inplace=True) 
+
+#method: svm, knn ou rf
 def getInitTimestamp():
   #Mudar dbname conforme nome da base de dados (obs: deve ser SQLite)
   dbname = "Gadgetbridge"
@@ -16,19 +31,3 @@ def getInitTimestamp():
   print(initTimeStamp)
 
   return initTimeStamp
-
-def videoToFrames(videoName):
-
-  vidcap = cv2.VideoCapture(videoName)
-  success,image = vidcap.read()
-  count = 0
-  
-  while success:
-    cv2.imwrite("frames/frame%d.jpg" % count, image)     # save frame as JPEG file      
-    success,image = vidcap.read()
-    print('Read a new frame: ', success)
-    count += 1
-  
-  return count
-
- 

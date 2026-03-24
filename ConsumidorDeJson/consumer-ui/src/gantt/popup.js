@@ -3,9 +3,11 @@
 // needs to call showInfoTooltip(task) without worrying about DOM details.
 // "deps" allows injecting helpers (like getBaseTask) and a document reference,
 // which makes the module more testable and avoids hard-coding globals.
+ 
 function createInfoModal(deps) {
 	var getBaseTask = deps && deps.getBaseTask ? deps.getBaseTask : function(task) { return task; };
-	var doc = deps && deps.document ? deps.document : document;
+	var doc = deps && deps.document ? deps.document : document; 
+	var getAllStatus = deps && deps.getAllStatus ? deps.getAllStatus : function(){return null;};
 
 	// Modal UI for task details (kept outside SVG for easier layout).
 	// We keep references to the top-level nodes only; individual fields are
@@ -329,16 +331,17 @@ function createInfoModal(deps) {
 					var subtaskValue = infoModal.querySelector(".task-info-subtasks .task-info-value");
 					var currentSubtaskBox = infoModal.querySelector(".task-info-current-subtask");
 					if (title) {
-						title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : "";
+						title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : ""; 
 					}
 					if (durationValue) {
-						durationValue.textContent = formatDuration(durationMs);
+						durationValue.textContent = formatDuration(durationMs); 
+						durationValue.textContent += baseTask.status; 
 					}
 					if (subtaskValue) {
-						subtaskValue.textContent = subtaskCount;
+						subtaskValue.textContent = subtaskCount; 
 					}
 					if (currentSubtaskBox) {
-						currentSubtaskBox.style.display = firstSubtask ? "flex" : "none";
+						currentSubtaskBox.style.display = firstSubtask ? "flex" : "none"; 
 					}
 
 					updateSelectedSubtaskDuration(selectedSubtask || firstSubtask);
@@ -376,26 +379,231 @@ function createInfoModal(deps) {
 				},
 				updateContent: function(context) {
 					// placeholder for minigame-specific updates
+
+
 				}
 			}
 			,
 			default: {
 				gridStyles: {
-					gridTemplateColumns: "248px 292px 225px",
-					gridAutoRows: "minmax(54px, 1fr)"
+					gridTemplateRows: "repeat(6, minmax(54px, max-content))"
 				},
 				buildContent: function(grid) {
+					// INSERT HERE: add new box templates for the "cena" popup.
+					// Box template fields:
+					// - className: extra class(es) for the box container
+					// - styles: inline style overrides for the box
+					// - elements: array of child definitions:
+					//   - tag: element tag name (defaults to "div")
+					//   - className: class(es) for the child
+					//   - text: textContent for the child
+					//   - styles: inline styles for the child
+					//   - attrs: attributes map (e.g., { "data-id": "..." })
 					createBoxTemplate(grid, {
 						className: "task-info-duration",
-						styles: { gridColumn: "1", gridRow: "1" },
+						styles: {
+							gridColumn: "1",
+							gridRow: "1"
+						},
 						elements: [
 							{ className: "task-info-value", styles: baseValueStyles },
-							{ className: "task-info-label", text: "ERRO", styles: baseLabelStyles }
+							{ className: "task-info-label", text: "Tempo total", styles: baseLabelStyles }
 						]
 					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-current-subtask",
+						styles: {
+							gridColumn: "2",
+							gridRow: "1",
+							justifySelf: "stretch",
+							alignSelf: "stretch",
+							display: "none"
+						},
+						elements: [
+							{ className: "task-info-value", styles: baseValueStyles },
+							{ className: "task-info-label", text: "Tempo de permanencia no dialogo", styles: baseLabelStyles }
+						]
+					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-subtask-selector",
+						styles: {
+							gridColumn: "3",
+							gridRow: "1",
+							justifySelf: "stretch",
+							padding: "11px 14px",
+							display: "none",
+							alignItems: "stretch",
+							gap: "8px"
+						},
+						elements: [
+							{ className: "task-info-label", text: "Selecionar dialogo", styles: baseLabelStyles },
+							{
+								tag: "select",
+								className: "task-info-subtask-select",
+								styles: {
+									width: "100%",
+									padding: "7px 9px",
+									borderRadius: "8px",
+									border: "1px solid rgba(0, 0, 0, 0.2)",
+									font: "16px Arial, sans-serif"
+								}
+							}
+						]
+					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-subtasks",
+						styles: {
+							gridColumn: "2",
+							gridRow: "2"
+						},
+						elements: [
+							{ className: "task-info-value", styles: baseValueStyles },
+							{ className: "task-info-label", text: "Dialogos", styles: baseLabelStyles }
+						]
+					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-question",
+						styles: {
+							gridColumn: "1",
+							gridRow: "2",
+							background: "#f6d84a"
+						},
+						elements: [
+							{ className: "task-info-question-title", text: "Todas as emoções:", styles: mergeStyles(baseLabelStyles, { color: "rgba(0, 0, 0, 0.7)" }) },
+							{ className: "task-info-question-text", styles: mergeStyles(baseBodyStyles, { marginTop: "4px" }) }
+						]
+					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-status",
+						styles: {
+							gridColumn: "2 / span 2",
+							gridRow: "6",
+							justifySelf: "stretch",
+							alignSelf: "stretch"
+						},
+						elements: [
+							{ className: "task-info-value", styles: baseValueStyles },
+							{ className: "task-info-label", text: "Status", styles: baseLabelStyles }
+						]
+					});
+ 
+					
+					createBoxTemplate(grid, { 
+						className: "task-info-status-text", 
+						styles: mergeStyles(baseBodyStyles, { 
+							gridColumn: "1",
+							gridRow: "3", 
+							gap: "6px",
+							width: "100%", 
+							display: "flex",
+							flexWrap: "wrap",
+							flexDirection: "row",	
+							minHeight: 0,
+							backgroundColor: "white",
+							borderColor: "white"
+						}) 
+					}); 
+
+					var imageBox = createEl("div", "task-info-box task-info-image", "Imagem (placeholder)");
+					setStyles(imageBox, {
+						gridColumn: "2 / span 2",
+						gridRow: "3 / span 3",
+						justifySelf: "stretch",
+						width: "100%",
+						boxSizing: "border-box",
+						height: "100%", 
+						minHeight: "200px",
+						padding: "14px",
+						border: "2px dashed rgba(0, 0, 0, 0.2)",
+						borderRadius: "12px",
+						background: "rgba(0, 0, 0, 0.02)",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						textAlign: "center",
+						color: "rgba(0, 0, 0, 0.45)",
+						font: "14px Arial, sans-serif"
+					});
+					grid.appendChild(imageBox);
 				},
 				updateContent: function(context) {
 					// placeholder for default popup updates
+					
+					var task = context.task || null;
+					var selectedSubtask = context.selectedSubtask || (task && task.__parentTask ? task : null);
+					var baseTask = context.baseTask || getBaseTask(task);
+					var start = baseTask && baseTask.startDate ? baseTask.startDate : null;
+					var end = baseTask && baseTask.endDate ? baseTask.endDate : null;
+					var durationMs = start && end ? Math.max(0, end - start) : 0;
+					var subtaskCount = countSubtasks(baseTask);
+					var subtasks = getSubtaskList(baseTask);
+					var firstSubtask = subtasks.length ? subtasks[0] : null;
+					var activeTextTask = selectedSubtask || firstSubtask || baseTask;
+
+					currentBaseTask = baseTask;
+
+					var title = infoModal.querySelector(".task-info-title");
+					var durationValue = infoModal.querySelector(".task-info-duration .task-info-value");
+					var subtaskValue = infoModal.querySelector(".task-info-subtasks .task-info-value");
+					var currentSubtaskBox = infoModal.querySelector(".task-info-current-subtask");
+					var statusValue = infoModal.querySelector(".task-info-status .task-info-value");
+					var emotionsContainer  = infoModal.querySelector(".task-info-status-text");
+					
+					let emotionsObj = getAllStatus(); 
+
+					if (emotionsObj && typeof emotionsObj === "object") {
+						Object.keys(emotionsObj).forEach(function(emotion) {
+
+							var box = createEl("div", "task-info-emotion-box", emotion);
+							let color = "white"
+
+							if(emotion == task.status){
+								color = "#f6d84a"
+							}
+							// estilos básicos (ajuste depois via CSS se quiser)
+							setStyles(box, {
+								padding: "6px 10px",
+								borderRadius: "8px", 
+								font: "13px Arial, sans-serif",
+								display: "flex", 
+								marginTop: "4px",
+								width: "100%",
+								alignContent: "flex-start",
+								backgroundColor: color
+							});
+
+							emotionsContainer.appendChild(box);
+					});
+					} else {
+							emotionsContainer.textContent = "Nenhuma emoção detectada";
+					} 
+
+					if (statusValue) {
+						statusValue.textContent = task && task.status ? task.status : "N/A";
+					}
+					if (title) {
+						title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : "";
+					}
+					if (durationValue) {
+						durationValue.textContent =  formatDuration(durationMs);
+					}
+					if (subtaskValue) {
+						subtaskValue.textContent = subtaskCount;
+					}
+					if (currentSubtaskBox) {
+						currentSubtaskBox.style.display = firstSubtask ? "flex" : "none";
+					}
+
+					updateSelectedSubtaskDuration(selectedSubtask || firstSubtask);
+					updateQuestionText(activeTextTask);
+					updateAlternatives(activeTextTask);
+					updateOptionMarkers(activeTextTask ? activeTextTask.selectedAlternative : null);
+					updateSelector(subtasks, selectedSubtask);
 				}
 			}
 		};

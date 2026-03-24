@@ -483,11 +483,16 @@ d3.gantt = function() {
 		return current || task;
 	}
 
+	function getAllStatus(){
+		return taskStatus;
+	}
+
 	// Wire up modal helper now that core helpers exist.
 	// The modal stays outside the SVG so layout is handled by normal DOM flow.
 	modal = createInfoModal({
 		d3: d3,
-		getBaseTask: getBaseTask
+		getBaseTask: getBaseTask,
+		getAllStatus: getAllStatus
 	});
 
 	// Collapse all tasks in the given list except the target (operates within one chart level).
