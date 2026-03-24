@@ -2,36 +2,17 @@ import { useState, useEffect } from 'react';
 import './App.css';  
 import {jsonToGantt, jsonToAllEmotions} from "./converter.ts"; 
 import type { EmoData } from './converter.ts';
-import { fetchFerEmoData, fetchHrEmoData } from './datamanager.ts';
+import { fetchFerEmoData, fetchHrEmoData, fetchVerticalAxisData } from './datamanager.ts';
 import {Select, InputLabel, MenuItem, FormControl, CircularProgress} from '@mui/material';  
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { GanttChart } from './components/GanttChart.tsx';
 import type {Task} from "./components/GanttChart.tsx";
+ 
 
-//formato dos dados recebidos
-//[timestamp, [emotions]] 
-/*
-const tasksTestD3 = [ 
-{ 
-    startDate: new Date(2026, 2, 11, 1, 36, 45),
-    endDate: new Date(2026, 2, 11, 2, 36, 45),
-    taskName: "C1",
-    status: "FAILED"
-}, 
-{
-    startDate: new Date(2026, 2, 11, 4, 56, 32),
-    endDate: new Date(2026, 2, 11, 6, 35, 47),
-    taskName: "C2",
-    status: "RUNNING"
-}]; 
-*/
-
-//não sei de onde virá ainda
-const taskNamesTestD3 = [ "C1", "C2"];
-  
 function App() {   
   const [ganttAllData, setGanttAllData] = useState<Task[]>([]) 
   const [jsonData, setJsonData] = useState<EmoData[]>([])
+  const [verticalAxisData, setVerticalAxisData] = useState<string[]>([])
 
   const [dataGantt, setDataGantt] = useState(ganttAllData);
   const [allEmos, setAllEmos] = useState<any[]>([]);
@@ -41,7 +22,7 @@ function App() {
   const [method, setMethod] = useState<string>("FER");
 
   const [loading, setLoading] = useState<boolean>(false);
-   
+ 
   useEffect(() => {
   const controller = new AbortController();
   const signal = controller.signal;   
@@ -55,7 +36,12 @@ function App() {
       }).catch(err => {
         console.log(err)
       }).finally( () => {
-        setLoading(false);
+        fetchVerticalAxisData().then((res) => {
+          setVerticalAxisData(res as string[])
+        }).catch(err => {console.log(err)})
+          .finally(() => {
+          setLoading(false); 
+        }) 
       }
       );
     } else if(method == 'HR'){
@@ -66,27 +52,32 @@ function App() {
       }).catch(err => {
         console.log(err)
       }).finally( () => {
-        setLoading(false);
+        fetchVerticalAxisData().then((res) => {
+          setVerticalAxisData(res as string[])
+        }).catch(err => {console.log(err)})
+          .finally(() => {
+          setLoading(false); 
+        }) 
       }
       );
     } else{
       setLoading(false);
       console.log("Unknown method inputted")
     }
-
+ 
     return () => {
       controller.abort();
     };
   }, [method]);
   
   useEffect(() => {
-    setGanttAllData(jsonToGantt(jsonData)); 
+    setGanttAllData(jsonToGantt(jsonData, verticalAxisData)); 
 
     const allEmotions = jsonToAllEmotions(jsonData);
     console.log(allEmotions);
 
     setAllEmos(allEmotions);
-  }, [jsonData])
+  }, [jsonData, verticalAxisData])
 
   useEffect(() => {
     //mudar dados
@@ -148,7 +139,7 @@ function App() {
          )  : <div/>
         }
         
-          <GanttChart tasks={dataGantt} taskNames={taskNamesTestD3} taskStatus={allEmos}/>
+          <GanttChart tasks={dataGantt} taskNames={verticalAxisData} taskStatus={allEmos}/>
       </div>
     </div>
   )

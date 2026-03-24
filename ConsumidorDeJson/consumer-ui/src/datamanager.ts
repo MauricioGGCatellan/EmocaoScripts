@@ -43,81 +43,20 @@ export async function fetchHrEmoData(method:string, signal: AbortSignal){
     }  
 }
 
-//Timestamp em segundos
-/*
-const jsonData = [[
-    {
-        "timestamp": 1746368750,
-        "emotion": "fear"
-    },
-    {
-        "timestamp": 1746368778,
-        "emotion": "neutral"
-    },
-    {
-        "timestamp": 1746368779,
-        "emotion": "neutral"
-    },
-    {
-        "timestamp": 1746368780,
-        "emotion": "neutral"
-    },
-    {
-        "timestamp": 1746368840,
-        "emotion": "angry"
-    },
-    {
-        "timestamp": 1746368841,
-        "emotion": "angry"
-    },],
-     [
-    {
-        "timestamp": 1746368776,
-        "emotion": "sad"
-    },
-    {
-        "timestamp": 1746368778,
-        "emotion": "surprised"
-    },
-    {
-        "timestamp": 1746368779,
-        "emotion": "surprised"
-    },
-    {
-        "timestamp": 1746368780,
-        "emotion": "surprised"
-    },
-    {
-        "timestamp": 1746368840,
-        "emotion": "angry"
-    },
-    {
-        "timestamp": 1746368866,
-        "emotion": "angry"
-    },],
-    [
-    {
-        "timestamp": 1746368776,
-        "emotion": "happy"
-    },
-    {
-        "timestamp": 1746368778,
-        "emotion": "fear"
-    },
-    {
-        "timestamp": 1746368779,
-        "emotion": "fear"
-    },
-    {
-        "timestamp": 1746368780,
-        "emotion": "fear"
-    },
-    {
-        "timestamp": 1746368840,
-        "emotion": "angry"
-    },
-    {
-        "timestamp": 1746368849,
-        "emotion": "angry"
-    },]];
-*/
+export async function fetchVerticalAxisData(){
+    try {
+        const verticalSource = 'http://127.0.0.1:8000/placeholder'
+        const response = await axios.get<EmoData[]>(verticalSource);
+
+        const verticalData = response.data; 
+
+        console.log(verticalData);
+
+        return verticalData;
+
+    } catch (error: any) {
+        console.error('Error during fetching:', error.message);
+
+        return ['Jogo']
+    }
+}

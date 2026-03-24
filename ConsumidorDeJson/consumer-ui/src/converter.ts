@@ -6,8 +6,8 @@ export interface EmoData {
   emotion: string;
 }
  
-export function jsonToGantt(jsonData: EmoData[]): any[]{
-    if(!jsonData || jsonData.length < 1){
+export function jsonToGantt(jsonData: EmoData[], verticalData: string[]): any[]{
+    if(!jsonData || jsonData.length < 1 || !verticalData || verticalData.length < 1){
         return [];
     }
 
@@ -29,12 +29,11 @@ export function jsonToGantt(jsonData: EmoData[]): any[]{
             continue;
         }
             
-        //Pensar em como trazer a cena
-
+        //Pensar em como trazer a cena 
         const newTask: Task = {
             startDate: new Date(firstTimeStamp*1e3),
             endDate: new Date(timestamp*1e3),
-            taskName: "C1",
+            taskName: verticalData[0],
             status: previousEmotion
         }
 
@@ -49,7 +48,7 @@ export function jsonToGantt(jsonData: EmoData[]): any[]{
     const lastTask: Task = {
         startDate: new Date(firstTimeStamp*1e3),
         endDate: new Date(jsonData[jsonData.length - 1].timestamp*1e3),
-        taskName: "C1",
+        taskName: verticalData[0],
         status: previousEmotion
     }
 
