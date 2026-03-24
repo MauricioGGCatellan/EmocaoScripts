@@ -119,12 +119,21 @@ function createInfoModal(deps) {
 		// INSERT HERE: only need to add the base status 
 		var baseTask = getBaseTask(task);
 		var target = baseTask || task;
+
 		if (target && target.status === "MINIGAME") {
 			return "minigame";
 		}
+
 		if (target && target.status === "CENA") {
 			return "cena";
 		}
+
+		const emocoes = ['fear', 'sad','happy', 'disgust', 'surprise', 'angry', 'neutral']
+		const emocoesPt = ['medo', 'triste', 'feliz', 'nojo', 'surpresa', 'raiva', 'neutro']
+		if(target && (emocoes.includes(target.status) || emocoesPt.includes(target.status))){
+			return "emocao";
+		}
+
 		return "default";
 	}
 
@@ -384,7 +393,7 @@ function createInfoModal(deps) {
 				}
 			}
 			,
-			default: {
+			emocao: {
 				gridStyles: {
 					gridTemplateRows: "repeat(6, minmax(54px, max-content))"
 				},
@@ -604,6 +613,25 @@ function createInfoModal(deps) {
 					updateAlternatives(activeTextTask);
 					updateOptionMarkers(activeTextTask ? activeTextTask.selectedAlternative : null);
 					updateSelector(subtasks, selectedSubtask);
+				}
+			},
+			default: {
+				gridStyles: {
+					gridTemplateColumns: "248px 292px 225px",
+					gridAutoRows: "minmax(54px, 1fr)"
+				},
+				buildContent: function(grid) {
+					createBoxTemplate(grid, {
+						className: "task-info-duration",
+						styles: { gridColumn: "1", gridRow: "1" },
+						elements: [
+							{ className: "task-info-value", styles: baseValueStyles },
+							{ className: "task-info-label", text: "ERRO", styles: baseLabelStyles }
+						]
+					});
+				},
+				updateContent: function(context) {
+					// placeholder for default popup updates
 				}
 			}
 		};
