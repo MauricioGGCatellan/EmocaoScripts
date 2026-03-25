@@ -3,11 +3,11 @@ import './App.css';
 import {jsonToGantt, jsonToAllEmotions, jsonToDuration} from "./converter.ts"; 
 import type { EmoData } from './converter.ts';
 import { fetchFerEmoData, fetchHrEmoData, fetchVerticalAxisData } from './datamanager.ts';
-import {Select, InputLabel, MenuItem, FormControl, CircularProgress, FormLabel, Box, Typography} from '@mui/material';  
+import {Select, MenuItem, FormControl, CircularProgress, Box, Typography} from '@mui/material';  
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { GanttChart } from './components/GanttChart.tsx';
-import type {Task} from "./components/GanttChart.tsx";
- 
+import type {Task} from "./components/GanttChart.tsx"; 
+declare const d3: any;
 
 function App() {   
   const [ganttAllData, setGanttAllData] = useState<Task[]>([]) 
@@ -25,15 +25,17 @@ function App() {
 
   const [duration, setDuration] = useState<number>(0);
  
+	const tableau10 = d3.scale.category10().range();
+  console.log(tableau10)
   const boxStyle = {
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between", 
         padding: "8px 12px",
-        border: "1px solid #ccc",
-        backgroundColor: "#f9f9f9",
+        border: "1px solid " + "#4d4d4d",
+        backgroundColor: "#dcdbdb",
         boxSizing: "border-box",
-        height: "72px",
+        height: "100%",
         borderRadius: "4px"
       }
   useEffect(() => {
@@ -122,6 +124,7 @@ function App() {
           <Select 
             value={selectedPerson} 
             onChange={handleChange}
+            sx={{height:"24px"}}
           >
             <MenuItem value={1}>Player 1</MenuItem>
             <MenuItem value={2}>Player 2</MenuItem>
@@ -138,6 +141,7 @@ function App() {
             <Select 
               value={method} 
               onChange={handleMethodChange}
+              sx={{height:"24px"}}
             >
               <MenuItem value={"FER"}>FER</MenuItem>
               <MenuItem value={"HR"}>HR</MenuItem> 
@@ -147,7 +151,7 @@ function App() {
           </Typography>
       </Box>
     </FormControl>
-    <FormControl className='gantt-menu' fullWidth size="small">
+    <FormControl fullWidth size="small">
       <Box sx={boxStyle}>
         <Typography variant="body2">
           {duration==0 ? '--' : duration}s

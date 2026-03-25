@@ -14,10 +14,13 @@ html, body, #root {
   display: flex;
   flex-direction: row;
   gap: 8px;
-  padding: 8px 12px;
-  border-right: 1px solid #ccc;
-  background-color: #f9f9f9;
+  padding: 8px 12px; 
+  /*
+  background-color: #7f7f7f;   
+  border: 1px solid #080808;
+  */
   box-sizing: border-box;
+  height: 72px;
 } 
      
 .gantt-chart {
