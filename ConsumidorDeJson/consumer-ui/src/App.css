@@ -28,4 +28,5 @@ html, body, #root {
   padding-left: 8px;
   overflow: hidden; 
   min-height: 0;
+  position: relative;
 }

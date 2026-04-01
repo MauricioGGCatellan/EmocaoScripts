@@ -192,6 +192,40 @@ function App() {
         }
         
           <GanttChart tasks={dataGantt} taskNames={verticalAxisData} taskStatus={allEmos}/>
+
+          {!loading && <Box
+            sx={{
+              position: "absolute",
+              top: 416,
+              right: 64,
+              backgroundColor: "white",
+              border: "1px solid #ccc",
+              borderRadius: "6px",
+              padding: "8px 12px",
+              boxShadow: 3,
+              zIndex: 10,
+              minWidth: "140px"
+            }}
+          >
+    <Typography variant="subtitle2">Legenda</Typography>
+
+      {Object.entries(allEmos).map(([emo, _], i) => (
+        <Box
+          key={emo}
+          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+        >
+          <Box
+            sx={{
+              width: 12,
+              height: 12,
+              backgroundColor: tableau10[i]
+            }}
+          />
+          <Typography variant="caption">{emo}</Typography>
+        </Box>
+      ))}
+    </Box>}  
+
       </div>
     </div>
   )
