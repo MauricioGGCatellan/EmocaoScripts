@@ -17,6 +17,13 @@ function createInfoModal(deps) {
 	var resizeBound = false;
 	var currentTemplateKey = null;
 	var currentBaseTask = null;
+	var emoImages = {happy: "/assets/feliz.jpg",
+		sad: "/assets/triste.png",
+		fear: "/assets/medo.png",
+		neutral: "/assets/neutro.png",
+		disgust: "/assets/nojo.png",
+		angry: "/assets/raiva.jpg"
+	}
 
 	// Apply multiple inline styles in one call.
 	// This keeps element creation readable and ensures the popup can be fully
@@ -518,26 +525,44 @@ function createInfoModal(deps) {
 						}) 
 					}); 
 
-					var imageBox = createEl("div", "task-info-box task-info-image", "Imagem (placeholder)");
+					var imageBox = createEl("div", "task-info-box task-info-image", "");
+					//emoImages
 					setStyles(imageBox, {
 						gridColumn: "2 / span 2",
 						gridRow: "3 / span 3",
-						justifySelf: "stretch",
+
+						alignSelf: "start",
+						justifySelf: "start" ,
 						width: "100%",
 						boxSizing: "border-box",
-						height: "100%", 
-						minHeight: "200px",
+						//height: "100%", 
+						//minHeight: "200px",
+						maxHeight: "200px", 
 						padding: "14px",
 						border: "2px dashed rgba(0, 0, 0, 0.2)",
 						borderRadius: "12px",
 						background: "rgba(0, 0, 0, 0.02)",
-						display: "flex",
+						display: "inline-flex",
 						alignItems: "center",
 						justifyContent: "center",
 						textAlign: "center",
 						color: "rgba(0, 0, 0, 0.45)",
 						font: "14px Arial, sans-serif"
 					});
+
+				var img = createEl("img", "task-info-image-content");
+
+				setStyles(img, {
+					maxWidth: "100%",
+					maxHeight: "190px",
+					width: "auto",
+					height: "auto",
+					objectFit: "contain",
+					borderRadius: "8px"
+				});
+
+				imageBox.appendChild(img);
+				grid.appendChild(imageBox);
 					grid.appendChild(imageBox);
 				},
 				updateContent: function(context) {
@@ -562,10 +587,15 @@ function createInfoModal(deps) {
 					var currentSubtaskBox = infoModal.querySelector(".task-info-current-subtask");
 					var statusValue = infoModal.querySelector(".task-info-status .task-info-value");
 					var emotionsContainer  = infoModal.querySelector(".task-info-status-text");
-					
+					var imageContainer = infoModal.querySelector(".task-info-image-content")
 					let emotionsObj = getAllStatus(); 
 
 					if (emotionsObj && typeof emotionsObj === "object") {
+						
+						//imageContainer.style.backgroundImage = `url(${emoImages[task.status]})`;
+						//imageContainer.style.backgroundSize = "cover";
+						//imageContainer.style.backgroundPosition = "center";
+						
 						Object.keys(emotionsObj).forEach(function(emotion) {
 
 							var box = createEl("div", "task-info-emotion-box", emotion);
@@ -594,6 +624,9 @@ function createInfoModal(deps) {
 
 					if (statusValue) {
 						statusValue.textContent = task && task.status ? task.status : "N/A";
+
+						console.log(imageContainer)
+						imageContainer.src = emoImages[task.status];
 					}
 					if (title) {
 						title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : "";
