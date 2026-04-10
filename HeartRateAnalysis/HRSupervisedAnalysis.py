@@ -32,12 +32,16 @@ def HRAnalyze(method):
 
     #Tratamento estatístico para remover outliers de timestamp
     timestamp_data = pandas.Series(x[0] for x in msr_data)
+    hr_data = pandas.Series(x[1] for x in msr_data)
 
     print(timestamp_data)
     removeTimeOutliers(timestamp_data)
+    removeTimeOutliers(hr_data)
 
     valid_timestamps = set(timestamp_data)
-    msr_data = [row for row in msr_data if row[0] in valid_timestamps]
+    valid_hrdata = set(hr_data)
+
+    msr_data = [row for row in msr_data if row[0] in valid_timestamps and row[1] in valid_hrdata]
 
     print(msr_data)
 

@@ -45,10 +45,21 @@ export async function fetchHrEmoData(method:string, signal: AbortSignal){
 
 export async function fetchVerticalAxisData(){
     try {
-        const verticalSource = 'http://127.0.0.1:8000/placeholder'
-        const response = await axios.get<EmoData[]>(verticalSource);
+        const query = `
+            query GetSessions {
+                me {
+                Sessions {
+                    Users { name }
+                    Game { name }
+                }
+                }
+            }
+            `;
 
-        const verticalData = response.data; 
+        const verticalSource = 'http://localhost:8085/graphql'
+        const response = await axios.post(verticalSource, {query});
+
+        const verticalData = response.data.data;     
 
         console.log(verticalData);
 

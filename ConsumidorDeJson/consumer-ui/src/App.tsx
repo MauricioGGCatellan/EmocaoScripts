@@ -3,7 +3,7 @@ import './App.css';
 import {jsonToGantt, jsonToAllEmotions, jsonToDuration} from "./converter.ts"; 
 import type { EmoData } from './converter.ts';
 import { fetchFerEmoData, fetchHrEmoData, fetchVerticalAxisData } from './datamanager.ts';
-import {Select, MenuItem, FormControl, CircularProgress, Box, Typography} from '@mui/material';  
+import {Select, MenuItem, FormControl, CircularProgress, Box, Typography, ToggleButtonGroup, ToggleButton} from '@mui/material';  
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { GanttChart } from './components/GanttChart.tsx';
 import type {Task} from "./components/GanttChart.tsx"; 
@@ -38,6 +38,18 @@ function App() {
         height: "100%",
         borderRadius: "4px"
       }
+
+  const [viewMode, setViewMode] = useState<"A" | "B">("B");
+
+  const handleViewChange = (
+    event: React.MouseEvent<HTMLElement>,
+    newValue: "A" | "B" | null
+  ) => {
+    if (newValue !== null) {
+      setViewMode(newValue);
+    }
+  };
+
   useEffect(() => {
   const controller = new AbortController();
   const signal = controller.signal;   
@@ -119,6 +131,45 @@ function App() {
   return (
     <div className="gantt-container">
       <aside className="gantt-menu">
+
+      <FormControl fullWidth size="small"> 
+        <Box
+          sx={{display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between", 
+          padding: "8px 12px", 
+          boxSizing: "border-box",
+          height: "100%"}}
+        >
+        <ToggleButtonGroup 
+          value={viewMode}
+          exclusive 
+          onChange={handleViewChange}
+          size="small"
+          sx = {{
+            display: 'flex', 
+            width: "100%",
+            height: "100%",
+            border: "1px solid " + "#4d4d4d", 
+            borderRadius: "4px",
+            backgroundColor: "#dcdbdb", 
+          }}
+        >
+          <ToggleButton value="A" sx={{flex: 1, textTransform:"none", color:"text.primary"}}>
+            <Typography variant="body2">
+            Visão Geral
+            </Typography>
+          </ToggleButton>
+
+          <ToggleButton value="B" sx={{flex: 1, textTransform:"none", color:"text.primary"}}>
+            <Typography variant="body2">
+            Visão Individual
+            </Typography>
+          </ToggleButton>
+        </ToggleButtonGroup>
+        </Box>
+      </FormControl>
+
       <FormControl fullWidth size="small">
         <Box sx={boxStyle}>  
           <Select 

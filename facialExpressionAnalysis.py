@@ -11,7 +11,7 @@ def faceAnalyze(imgName, time, initTimeStamp):
     try:
         objs = DeepFace.analyze(
             img_path = imgName, 
-            actions = ['gender', 'race', 'emotion'],
+            actions = ['emotion'],
             #model_name = "Facenet"
         ) 
         
