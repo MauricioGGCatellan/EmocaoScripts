@@ -1,5 +1,7 @@
 import cv2
 import sqlite3 
+import time
+import os
 from datetime import timedelta
 
 def getInitTimestamp():
@@ -17,7 +19,19 @@ def getInitTimestamp():
 
   return initTimeStamp
 
+def videoPolling(videoName, timeout=10):
+    start = time.time()
+    while time.time() - start < timeout:
+        if os.path.isfile(videoName):
+            return 0
+        time.sleep(0.1)
+    return 1
+
 def videoToFrames(videoName):
+  pollRes = videoPolling(videoName)
+
+  if pollRes == 1:
+     return {"res": 0, "err": "Video nao encontrado"}
 
   vidcap = cv2.VideoCapture(videoName)
   success,image = vidcap.read()
@@ -29,6 +43,6 @@ def videoToFrames(videoName):
     print('Read a new frame: ', success)
     count += 1
   
-  return count
+  return {"res": count, "err": ""}
 
  

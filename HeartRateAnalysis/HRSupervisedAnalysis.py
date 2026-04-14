@@ -2,9 +2,12 @@ import sqlite3
 import pandas  
 import json
 import numpy as np
+import os
+import time
 from sklearn import svm 
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier  
+from sklearn.preprocessing import StandardScaler
 
 def removeTimeOutliers(data):
     Q1 = data.quantile(0.25)
@@ -19,9 +22,22 @@ def removeTimeOutliers(data):
     data.drop(index=upper_array, inplace=True)
     data.drop(index=lower_array, inplace=True) 
 
+def dbPolling(timeout=10):
+    start = time.time()
+    while time.time() - start < timeout:
+        if os.path.isfile("Gadgetbridge"):
+            return 0
+        time.sleep(0.1)
+    return 1
+
 #method: svm, knn ou rf
 def HRAnalyze(method):
     #Mudar dbname conforme nome da base de dados (obs: deve ser SQLite)
+    pollRes = dbPolling()
+
+    if pollRes == 1:
+        return {"res": [], "err": "DB não existe."}
+    
     dbname = "Gadgetbridge"
     con = sqlite3.connect(dbname)
     cursor = con.cursor()
@@ -41,32 +57,43 @@ def HRAnalyze(method):
     valid_timestamps = set(timestamp_data)
     valid_hrdata = set(hr_data)
 
+    #Tratamento dados do usuario
     msr_data = [row for row in msr_data if row[0] in valid_timestamps and row[1] in valid_hrdata]
 
-    print(msr_data)
+    df_msr = pandas.DataFrame(msr_data, columns=['timestamp', 'hr'])
 
+    df_msr['hr_mean'] = df_msr['hr'].rolling(5).mean()
+    df_msr = df_msr.dropna()
+  
     #Ler CSV de dados de treino (WESAD)
     df = pandas.read_csv("HeartRateAnalysis/heart_rate_emotion_dataset.csv")
     
-    x = df.drop('Emotion', axis=1)
+    #Resolvendo problema de pairing
+    df['hr_mean'] = df['HeartRate'].rolling(5).mean()
+    df = df.dropna()
+    
+    x_mean = df['hr_mean'] 
     y = df['Emotion'] 
 
     #Aplicar algum algoritmo: RF,SVM e KNN
     if method == 'rf':
         clf = RandomForestClassifier()             
     elif method == 'svm':
-        clf = svm.LinearSVC()
+        clf = svm.SVC(kernel='linear', probability=True)
     elif method == 'knn':
         clf = KNeighborsClassifier()
     else:
-        return {} 
-
-    clf.fit(x, y)
-
-    heart_rates = [row[1] for row in msr_data]
-    heart_rates = np.array(heart_rates).reshape(-1, 1)  # formato 2D
-
-    y_pred = clf.predict(heart_rates)
+        return {"res": [], "err": "Metodo invalido."} 
+    
+    scaler = StandardScaler() 
+    
+    x_mean_reshaped = np.array(x_mean).reshape(-1, 1)
+    x_scaled = scaler.fit_transform(x_mean_reshaped)
+    
+    clf.fit(x_scaled, y)
+    #N sei qual é melhor - heart_rates_scaled ou heart_rates 
+    heart_rates_scaled = scaler.transform(df_msr[['hr_mean']])  
+    y_pred = clf.predict(heart_rates_scaled)
 
     #Imprimir predição de emoções
     #print(y_pred)
@@ -87,4 +114,4 @@ def HRAnalyze(method):
     with open(file_path, "w") as json_file:
         json.dump(objs, json_file, indent=4)
 
-    return objs
+    return {"res": objs, "err": ""}

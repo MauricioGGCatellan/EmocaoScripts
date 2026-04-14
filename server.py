@@ -35,7 +35,11 @@ def face_analyze(videoName):
     frameCount = 0
     directory_path = "./frames"
     if not any(os.scandir(directory_path)):
-        frameCount = videoToFrames(videoName)
+        framesObj = videoToFrames(videoName)
+        if framesObj["err"] != "":
+            return {"res": [], "err": framesObj["err"]}
+        
+        frameCount = framesObj["res"]
     else:
         frameCount = len([name for name in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, name))])
     
@@ -48,15 +52,17 @@ def face_analyze(videoName):
         with open(output_path, 'r') as f:
             emoData = json.load(f)
 
-    return emoData
+    return {"res": emoData, "err": ""}
 
 @app.get("/hr/{method}")
 def hr_analyze(method):
     output_path = "./HeartRateAnalysis/HR_output.json"
     if not os.path.isfile(output_path):
         emoData = HRAnalyze(method)
+        if emoData["err"] != "":
+            return {"res": [], "err": emoData["err"]}
     else:
         with open(output_path, 'r') as f:
             emoData = json.load(f)
-    print(emoData)
-    return emoData
+            print(emoData)
+            return {"res": emoData, "err": ""}

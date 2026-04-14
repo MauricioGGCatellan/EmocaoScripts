@@ -9,6 +9,8 @@ import { GanttChart } from './components/GanttChart.tsx';
 import type {Task} from "./components/GanttChart.tsx"; 
 declare const d3: any;
 
+
+
 function App() {   
   const [ganttAllData, setGanttAllData] = useState<Task[]>([]) 
   const [jsonData, setJsonData] = useState<EmoData[]>([])
