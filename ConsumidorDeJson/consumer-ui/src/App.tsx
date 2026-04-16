@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import './App.css';  
 import {jsonToGantt, jsonToAllEmotions, jsonToDuration} from "./converter.ts"; 
 import type { EmoData } from './converter.ts';
-import { fetchFerEmoData, fetchHrEmoData, fetchVerticalAxisData } from './datamanager.ts';
+import { fetchAllUsersData, fetchFerEmoData, fetchHrEmoData, fetchVerticalAxisData } from './datamanager.ts';
 import {Select, MenuItem, FormControl, CircularProgress, Box, Typography, ToggleButtonGroup, ToggleButton} from '@mui/material';  
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { GanttChart } from './components/GanttChart.tsx';
@@ -10,8 +10,21 @@ import type {Task} from "./components/GanttChart.tsx";
 declare const d3: any;
 
 
+type AppProps = {
+  token: string;
+}
 
-function App() {   
+type User = {
+  id: string;
+  name: string;
+}
+
+type UserTasks = {
+  user: User,
+  tasks: Task[]
+}
+
+function App({token}: AppProps) {   
   const [ganttAllData, setGanttAllData] = useState<Task[]>([]) 
   const [jsonData, setJsonData] = useState<EmoData[]>([])
   const [verticalAxisData, setVerticalAxisData] = useState<string[]>([])
@@ -19,7 +32,9 @@ function App() {
   const [dataGantt, setDataGantt] = useState(ganttAllData);
   const [allEmos, setAllEmos] = useState<any[]>([]);
 
-  const [selectedPerson, setSelectedPerson] = useState<number>(1);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+
+  const [selectedPerson, setSelectedPerson] = useState<string>("");
   
   const [method, setMethod] = useState<string>("FER");
 
@@ -53,19 +68,30 @@ function App() {
   };
 
   useEffect(() => {
-  const controller = new AbortController();
-  const signal = controller.signal;   
+    fetchAllUsersData(token).then((res) => { 
+      setAllUsers(res);
+      if(res.length > 0){
+        setSelectedPerson(res[0].id);
+      }
+    }).catch(err => {
+      console.log("Erro: " + err)
+    }); 
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;   
 
     setLoading(true);
     if(method == 'FER'){
-      fetchFerEmoData(signal).then((res) => {
+      fetchFerEmoData(selectedPerson, signal).then((res) => {
       const ferEmoData = res
 
       setJsonData(ferEmoData as EmoData[]);
       }).catch(err => {
         console.log(err)
       }).finally( () => {
-        fetchVerticalAxisData().then((res) => {
+        fetchVerticalAxisData(token).then((res) => {
           setVerticalAxisData(res as string[])
         }).catch(err => {console.log(err)})
           .finally(() => {
@@ -74,14 +100,14 @@ function App() {
       }
       );
     } else if(method == 'HR'){
-      fetchHrEmoData('knn', signal).then((res) => {
+      fetchHrEmoData('knn', selectedPerson, signal).then((res) => {
         const hrEmoData = res
 
         setJsonData(hrEmoData as EmoData[])
       }).catch(err => {
         console.log(err)
       }).finally( () => {
-        fetchVerticalAxisData().then((res) => {
+        fetchVerticalAxisData(token).then((res) => {
           setVerticalAxisData(res as string[])
         }).catch(err => {console.log(err)})
           .finally(() => {
@@ -97,7 +123,7 @@ function App() {
     return () => {
       controller.abort();
     };
-  }, [method]);
+  }, [selectedPerson, method]);
   
   useEffect(() => {
     setGanttAllData(jsonToGantt(jsonData, verticalAxisData)); 
@@ -114,7 +140,12 @@ function App() {
     //mudar dados
     console.log(selectedPerson);
     
-    if(!ganttAllData[selectedPerson-1]){
+    //chamar gantAllData da PESSOA
+    //...
+    ///
+
+
+    if(!ganttAllData){
       return;
     }
     
@@ -122,8 +153,8 @@ function App() {
     setDataGantt(ganttAllData);
   }, [selectedPerson, ganttAllData])
 
-  const handleChange = (event: SelectChangeEvent<number>) => {
-    setSelectedPerson(Number(event.target.value));
+  const handleChange = (event: SelectChangeEvent<string>) => {
+    setSelectedPerson(event.target.value);
   };
 
   const handleMethodChange = (event: SelectChangeEvent<string>) => {
@@ -178,10 +209,12 @@ function App() {
             value={selectedPerson} 
             onChange={handleChange}
             sx={{height:"24px"}}
-          >
-            <MenuItem value={1}>Player 1</MenuItem>
-            <MenuItem value={2}>Player 2</MenuItem>
-            <MenuItem value={3}>Player 3</MenuItem>
+          > 
+            {allUsers.map((user) => (
+            <MenuItem value={user.id}>
+              {user.name}
+            </MenuItem>
+            ))} 
           </Select>
           <Typography variant="body2">
             Jogador

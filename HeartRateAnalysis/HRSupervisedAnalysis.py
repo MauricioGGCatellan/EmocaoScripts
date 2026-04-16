@@ -31,7 +31,7 @@ def dbPolling(timeout=10):
     return 1
 
 #method: svm, knn ou rf
-def HRAnalyze(method):
+def HRAnalyze(method, user):
     #Mudar dbname conforme nome da base de dados (obs: deve ser SQLite)
     pollRes = dbPolling()
 
@@ -110,7 +110,7 @@ def HRAnalyze(method):
         i = i + 1
  
     #Salvar objs como json
-    file_path = "HeartRateAnalysis/HR_output.json"
+    file_path = "HeartRateAnalysis/" + user + "_HR_output.json"
     with open(file_path, "w") as json_file:
         json.dump(objs, json_file, indent=4)
 

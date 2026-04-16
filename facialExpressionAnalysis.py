@@ -30,9 +30,9 @@ def faceAnalyze(imgName, time, initTimeStamp):
 
 #ImgQuant: número de frames
 #DataQuant: intervalo de frames a serem analisados
-def framesAnalyze(imgQuant, dataQuant, initTimeStamp):  
+def framesAnalyze(user, imgQuant, dataQuant, initTimeStamp):  
     objs = []
-    dataName = 'ferdata/ferData.json'
+    dataName = 'ferdata/' + user + '_ferData.json'
     for i in range(1, imgQuant + 1, dataQuant):
         imgName = 'frames/frame' + str(i) + '.jpg'
         

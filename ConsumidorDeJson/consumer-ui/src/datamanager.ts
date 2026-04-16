@@ -6,11 +6,11 @@ export type APIResult = {
   err: string
 };
 
-export async function fetchFerEmoData(signal: AbortSignal){
+export async function fetchFerEmoData(person: string, signal: AbortSignal){
     const videoName = 'video.mp4';
 
     try {
-        const response = await axios.get<APIResult>(`http://127.0.0.1:8000/face/${videoName}`, {
+        const response = await axios.get<APIResult>(`http://127.0.0.1:8000/face/${videoName}/${person}`, {
             params: {
                 videoName: videoName
             },
@@ -32,9 +32,9 @@ export async function fetchFerEmoData(signal: AbortSignal){
     } 
 }
 
-export async function fetchHrEmoData(method:string, signal: AbortSignal){
+export async function fetchHrEmoData(method:string, person: string, signal: AbortSignal){
     try {
-        const response = await axios.get<APIResult>(`http://127.0.0.1:8000/hr/${method}`, {
+        const response = await axios.get<APIResult>(`http://127.0.0.1:8000/hr/${method}/${person}`, {
             params: {
                 method: method
             },
@@ -56,21 +56,23 @@ export async function fetchHrEmoData(method:string, signal: AbortSignal){
     }  
 }
 
-export async function fetchVerticalAxisData(){
+export async function fetchVerticalAxisData(token:string /*id:string*/){
     try {
         const query = `
-            query GetSessions {
-                me {
-                Sessions {
-                    Users { name }
-                    Game { name }
-                }
+            {
+                node($id: {id}) {
+                    ... on User Sessions {
+                        Users { name }
+                        Game { name }
+                    }
                 }
             }
             `;
 
         const verticalSource = 'http://localhost:8085/graphql'
-        const response = await axios.post(verticalSource, {query});
+        const response = await axios.post(verticalSource, {query}, {headers: {
+            Authorization: "Bearer " + token
+        }});
 
         const verticalData = response.data.data;     
 
@@ -82,5 +84,33 @@ export async function fetchVerticalAxisData(){
         console.error('Error during fetching:', error.message);
 
         return ['Jogo']
+    }
+}
+
+export async function fetchAllUsersData(token:string) {
+    try{
+        const query = `{
+            getAllUsers{
+                id
+                name
+            }
+        }`;
+
+        const verticalSource = 'http://localhost:8085/graphql'
+
+        const response = await axios.post(verticalSource, {query}, {headers: {
+            Authorization: "Bearer " + token
+        }});
+
+        const allUsers = response.data.data.getAllUsers;     
+
+        console.log(allUsers);
+
+        return allUsers;
+    }
+    catch (error: any) {
+        console.error('Error during fetching:', error.message);
+
+        return ['Eu']
     }
 }
