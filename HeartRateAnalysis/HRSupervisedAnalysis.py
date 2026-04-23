@@ -1,17 +1,17 @@
-import sqlite3
 import pandas  
 import json
 import numpy as np
 import os
 import time
+from datetime import datetime
 from sklearn import svm 
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier  
 from sklearn.preprocessing import StandardScaler
 
 def removeTimeOutliers(data):
-    Q1 = data.quantile(0.25)
-    Q3 = data.quantile(0.75)
+    Q1 = data.quantile(0.1)
+    Q3 = data.quantile(0.9)
     IQR = Q3 - Q1
     lower = Q1 - 1.5*IQR
     upper = Q3 + 1.5*IQR
@@ -25,7 +25,7 @@ def removeTimeOutliers(data):
 def dbPolling(timeout=10):
     start = time.time()
     while time.time() - start < timeout:
-        if os.path.isfile("Gadgetbridge"):
+        if os.path.isfile("HeartRateAnalysis/HEARTRATE_AUTO.csv"):
             return 0
         time.sleep(0.1)
     return 1
@@ -37,39 +37,25 @@ def HRAnalyze(method, user):
 
     if pollRes == 1:
         return {"res": [], "err": "DB não existe."}
-    
-    dbname = "Gadgetbridge"
-    con = sqlite3.connect(dbname)
-    cursor = con.cursor()
+     
+    msr_data = pandas.read_csv("HeartRateAnalysis/HEARTRATE_AUTO.csv")
 
-    #Removendo artefatos de HR= 255 artifacts e ordenando por timestamp 
-    cursor.execute("SELECT TIMESTAMP, HEART_RATE FROM MI_BAND_ACTIVITY_SAMPLE WHERE HEART_RATE < 255 ORDER BY TIMESTAMP ASC")
-    msr_data = cursor.fetchall()
-
-    #Tratamento estatístico para remover outliers de timestamp
-    timestamp_data = pandas.Series(x[0] for x in msr_data)
-    hr_data = pandas.Series(x[1] for x in msr_data)
-
-    print(timestamp_data)
-    removeTimeOutliers(timestamp_data)
-    removeTimeOutliers(hr_data)
-
-    valid_timestamps = set(timestamp_data)
+    #Tratamento estatístico para remover outliers de timestamp 
+    hr_data = msr_data['heartRate'].copy()
+ 
+    removeTimeOutliers(hr_data) 
     valid_hrdata = set(hr_data)
 
     #Tratamento dados do usuario
-    msr_data = [row for row in msr_data if row[0] in valid_timestamps and row[1] in valid_hrdata]
-
-    df_msr = pandas.DataFrame(msr_data, columns=['timestamp', 'hr'])
-
-    df_msr['hr_mean'] = df_msr['hr'].rolling(5).mean()
-    df_msr = df_msr.dropna()
+    msr_data = msr_data[msr_data['heartRate'].isin(valid_hrdata)]
+    msr_data['hr_mean'] = msr_data['heartRate'].rolling(2).mean()
+    msr_data = msr_data.dropna()
   
     #Ler CSV de dados de treino (WESAD)
     df = pandas.read_csv("HeartRateAnalysis/heart_rate_emotion_dataset.csv")
     
     #Resolvendo problema de pairing
-    df['hr_mean'] = df['HeartRate'].rolling(5).mean()
+    df['hr_mean'] = df['HeartRate'].rolling(2).mean()
     df = df.dropna()
     
     x_mean = df['hr_mean'] 
@@ -92,7 +78,7 @@ def HRAnalyze(method, user):
     
     clf.fit(x_scaled, y)
     #N sei qual é melhor - heart_rates_scaled ou heart_rates 
-    heart_rates_scaled = scaler.transform(df_msr[['hr_mean']])  
+    heart_rates_scaled = scaler.transform(msr_data[['hr_mean']])  
     y_pred = clf.predict(heart_rates_scaled)
 
     #Imprimir predição de emoções
@@ -103,8 +89,13 @@ def HRAnalyze(method, user):
     i = 0
 
     for pred in y_pred:
+        row = msr_data.iloc[i] 
         obj = {}
-        obj['timestamp'] = msr_data[i][0]   #Consultar no sqlite
+        date = row['date']
+        time = " " + row['time']
+        fulldate = datetime.strptime(date + time, "%Y-%m-%d %H:%M")
+  
+        obj['timestamp'] = fulldate.timestamp()
         obj['emotion'] = pred   #Navegar no vetor y_pred
         objs.append(obj)
         i = i + 1

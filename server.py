@@ -27,12 +27,12 @@ app.add_middleware(
 
 @app.get("/")
 def read_root():
-    return {"Hello": "World"}
+    return "Bem-vindo à API do EmocaoScripts!"
 
 #videoName = '2025-06-26 11-19-28.mkv'
 @app.get("/face/{videoName}/{user}")
 def face_analyze(videoName, user):
-    frameCount = 0
+    frameCount = {"count": 0, "fps": 0}
     directory_path = "./frames_" + user
     if not os.path.exists(directory_path):
         os.mkdir(directory_path)
@@ -42,13 +42,13 @@ def face_analyze(videoName, user):
         
         frameCount = framesObj["res"]
     else:
-        frameCount = len([name for name in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, name))])
-    
+        with open(directory_path + "/meta.json", 'r') as f:
+            frameCount = json.load(f)
  
     output_path = "./ferdata/" + user + "_ferData.json"
     if not os.path.exists(output_path):
         initTimeStamp = getInitTimestamp()
-        emoData = framesAnalyze(user, frameCount, 60, initTimeStamp)
+        emoData = framesAnalyze(user, frameCount["count"], frameCount["fps"], initTimeStamp)
     else:
         with open(output_path, 'r') as f:
             emoData = json.load(f)

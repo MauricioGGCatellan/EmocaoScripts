@@ -11,6 +11,7 @@ declare const d3: any;
 
 
 type AppProps = {
+  sessionId: string;
   token: string;
 }
 
@@ -18,13 +19,8 @@ type User = {
   id: string;
   name: string;
 }
-
-type UserTasks = {
-  user: User,
-  tasks: Task[]
-}
-
-function App({token}: AppProps) {   
+ 
+function App({sessionId, token}: AppProps) {   
   const [ganttAllData, setGanttAllData] = useState<Task[]>([]) 
   const [jsonData, setJsonData] = useState<EmoData[]>([])
   const [verticalAxisData, setVerticalAxisData] = useState<string[]>([])
@@ -68,7 +64,7 @@ function App({token}: AppProps) {
   };
 
   useEffect(() => {
-    fetchAllUsersData(token).then((res) => { 
+    fetchAllUsersData(sessionId, token).then((res) => { 
       setAllUsers(res);
       if(res.length > 0){
         setSelectedPerson(res[0].id);
@@ -91,7 +87,7 @@ function App({token}: AppProps) {
       }).catch(err => {
         console.log(err)
       }).finally( () => {
-        fetchVerticalAxisData(token).then((res) => {
+        fetchVerticalAxisData(sessionId, token).then((res) => {
           setVerticalAxisData(res as string[])
         }).catch(err => {console.log(err)})
           .finally(() => {
@@ -107,7 +103,7 @@ function App({token}: AppProps) {
       }).catch(err => {
         console.log(err)
       }).finally( () => {
-        fetchVerticalAxisData(token).then((res) => {
+        fetchVerticalAxisData(sessionId, token).then((res) => {
           setVerticalAxisData(res as string[])
         }).catch(err => {console.log(err)})
           .finally(() => {

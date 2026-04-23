@@ -56,14 +56,15 @@ export async function fetchHrEmoData(method:string, person: string, signal: Abor
     }  
 }
 
-export async function fetchVerticalAxisData(token:string /*id:string*/){
+export async function fetchVerticalAxisData(sessionId: string, token:string){
     try {
         const query = `
             {
-                node($id: {id}) {
-                    ... on User Sessions {
-                        Users { name }
-                        Game { name }
+                node(id: ${sessionId}) {
+                    ... on Session {
+                        Game { 
+                            name
+                        }
                     }
                 }
             }
@@ -87,8 +88,33 @@ export async function fetchVerticalAxisData(token:string /*id:string*/){
     }
 }
 
-export async function fetchAllUsersData(token:string) {
+export async function fetchAllUsersData(sessionId:string, token:string) {
     try{
+        const query = `{
+            node(id: ${sessionId}){
+                ... on Session{
+                    Users{
+                        id
+                        name
+                    }
+                }
+            }
+        }`;
+
+        const verticalSource = 'http://localhost:8085/graphql'
+
+        const response = await axios.post(verticalSource, {query}, {headers: {
+            Authorization: "Bearer " + token
+        }});
+
+        const allUsers = response.data.data.getAllUsers;     
+
+        console.log(allUsers);
+
+        return allUsers;
+    }
+    catch (error: any) {
+        console.error('Error during fetching:', error.message);
         const query = `{
             getAllUsers{
                 id
@@ -107,10 +133,5 @@ export async function fetchAllUsersData(token:string) {
         console.log(allUsers);
 
         return allUsers;
-    }
-    catch (error: any) {
-        console.error('Error during fetching:', error.message);
-
-        return ['Eu']
     }
 }
