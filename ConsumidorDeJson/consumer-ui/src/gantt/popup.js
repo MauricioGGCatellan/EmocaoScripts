@@ -589,7 +589,15 @@ function createInfoModal(deps) {
 					var emotionsContainer  = infoModal.querySelector(".task-info-status-text");
 					var imageContainer = infoModal.querySelector(".task-info-image-content")
 					let emotionsObj = getAllStatus(); 
-
+					const emotionTranslations = {
+						"fear": "medo",
+						"sad": "triste",
+						"neutral": "neutro",
+						"happy": "feliz",
+						"surprise": "surpresa",
+						"disgust": "nojo",
+						"angry": "raiva"
+					}
 					if (emotionsObj && typeof emotionsObj === "object") {
 						
 						//imageContainer.style.backgroundImage = `url(${emoImages[task.status]})`;
@@ -598,7 +606,7 @@ function createInfoModal(deps) {
 						
 						Object.keys(emotionsObj).forEach(function(emotion) {
 
-							var box = createEl("div", "task-info-emotion-box", emotion);
+							var box = createEl("div", "task-info-emotion-box", emotionTranslations[emotion] || emotion);
 							let color = "white"
 
 							if(emotion == task.status){
@@ -623,7 +631,7 @@ function createInfoModal(deps) {
 					} 
 
 					if (statusValue) {
-						statusValue.textContent = task && task.status ? task.status : "N/A";
+						statusValue.textContent = task && task.status ? emotionTranslations[task.status] || task.status : "N/A";
 
 						console.log(imageContainer)
 						imageContainer.src = emoImages[task.status];

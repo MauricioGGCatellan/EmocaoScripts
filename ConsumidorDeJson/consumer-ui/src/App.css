@@ -18,15 +18,15 @@ html, body, #root {
   /*
   background-color: #7f7f7f;   
   border: 1px solid #080808;
-  */
+  */ 
   box-sizing: border-box;
   height: 72px;
 } 
      
 .gantt-chart {
   flex: 1;
-  padding-left: 8px;
-  overflow: hidden; 
+  padding-left: 8px;  
   min-height: 0;
   position: relative;
+  overflow: auto;
 }

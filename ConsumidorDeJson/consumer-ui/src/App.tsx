@@ -7,6 +7,8 @@ import {Select, MenuItem, FormControl, CircularProgress, Box, Typography, Toggle
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { GanttChart } from './components/GanttChart.tsx';
 import type {Task} from "./components/GanttChart.tsx"; 
+import { emotionTranslations } from './translation.ts';
+
 declare const d3: any;
 
 
@@ -26,7 +28,7 @@ function App({sessionId, token}: AppProps) {
   const [verticalAxisData, setVerticalAxisData] = useState<string[]>([])
 
   const [dataGantt, setDataGantt] = useState(ganttAllData);
-  const [allEmos, setAllEmos] = useState<any[]>([]);
+  const [allEmos, setAllEmos] = useState<string[]>([]);
 
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
@@ -303,7 +305,7 @@ function App({sessionId, token}: AppProps) {
               backgroundColor: tableau10[i]
             }}
           />
-          <Typography variant="caption">{emo}</Typography>
+          <Typography variant="caption">{emotionTranslations[emo] || emo}</Typography>
         </Box>
       ))}
     </Box>}  
