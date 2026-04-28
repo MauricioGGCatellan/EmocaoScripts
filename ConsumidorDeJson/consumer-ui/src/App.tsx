@@ -51,6 +51,7 @@ function App({sessionId, token}: AppProps) {
         backgroundColor: "#dcdbdb",
         boxSizing: "border-box",
         height: "100%",
+        width: "100%",
         borderRadius: "4px"
       }
 
@@ -163,14 +164,14 @@ function App({sessionId, token}: AppProps) {
     <div className="gantt-container">
       <aside className="gantt-menu">
 
-      <FormControl fullWidth size="small"> 
+      <FormControl fullWidth size="small"  sx={{ gridColumn: "1 / -1" }}> 
         <Box
           sx={{display: "flex",
           flexDirection: "column",
-          justifyContent: "space-between", 
-          padding: "8px 12px", 
+          justifyContent: "space-between",  
           boxSizing: "border-box",
-          height: "100%"}}
+          height: "100%",
+          width: "100%"}}
         >
         <ToggleButtonGroup 
           value={viewMode}
@@ -184,16 +185,19 @@ function App({sessionId, token}: AppProps) {
             border: "1px solid " + "#4d4d4d", 
             borderRadius: "4px",
             backgroundColor: "#dcdbdb", 
+            boxSizing: "border-box",
+            whiteSpace: "nowrap",
+            overflow: "hidden"
           }}
         >
-          <ToggleButton value="A" sx={{flex: 1, textTransform:"none", color:"text.primary"}}>
-            <Typography variant="body2">
+          <ToggleButton value="A" sx={{flex: 1, textTransform:"none", color:"text.primary", width:"100%", minWidth: "0"}}>
+            <Typography noWrap variant="body2">
             Visão Geral
             </Typography>
           </ToggleButton>
 
-          <ToggleButton value="B" sx={{flex: 1, textTransform:"none", color:"text.primary"}}>
-            <Typography variant="body2">
+          <ToggleButton value="B" sx={{flex: 1, textTransform:"none", color:"text.primary", width:"100%", minWidth: "0"}}>
+            <Typography noWrap variant="body2">
             Visão Individual
             </Typography>
           </ToggleButton>
@@ -214,7 +218,7 @@ function App({sessionId, token}: AppProps) {
             </MenuItem>
             ))} 
           </Select>
-          <Typography variant="body2">
+          <Typography noWrap variant="body2">
             Jogador
           </Typography>
         </Box>
@@ -225,42 +229,51 @@ function App({sessionId, token}: AppProps) {
             <Select 
               value={method} 
               onChange={handleMethodChange}
-              sx={{height:"24px"}}
+              sx={{height:"24px"}} 
+              renderValue={(selected) => (
+                <Box sx={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap"
+                }}>
+                  {selected}
+                </Box>
+              )}
             >
-              <MenuItem value={"FER"}>FER</MenuItem>
-              <MenuItem value={"HR"}>HR</MenuItem> 
+              <MenuItem sx={{ whiteSpace: "nowrap" }} value={"FER"}>FER</MenuItem>
+              <MenuItem sx={{ whiteSpace: "nowrap" }} value={"HR"}>HR</MenuItem> 
             </Select>
-            <Typography variant="body2">
+            <Typography noWrap variant="body2">
               Método
           </Typography>
       </Box>
     </FormControl>
     <FormControl fullWidth size="small">
       <Box sx={boxStyle}>
-        <Typography variant="body2">
+        <Typography noWrap variant="body2">
           {duration==0 ? '--' : duration}s
         </Typography>
-        <Typography variant="body2">
+        <Typography noWrap variant="body2">
           Duração da partida
         </Typography>
       </Box> 
     </FormControl>
     <FormControl fullWidth size="small">
       <Box sx={boxStyle}>
-        <Typography variant="body2">
+        <Typography noWrap variant="body2">
           ----
         </Typography>
-        <Typography variant="body2">
+        <Typography noWrap variant="body2">
           Info extra 1
         </Typography>
       </Box>   
     </FormControl>
     <FormControl fullWidth size="small">
       <Box sx={boxStyle}>
-        <Typography variant="body2">
+        <Typography noWrap variant="body2">
           ----
         </Typography>
-        <Typography variant="body2">
+        <Typography noWrap variant="body2">
           Info extra 2
         </Typography>
       </Box>   

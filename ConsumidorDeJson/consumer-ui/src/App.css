@@ -18,9 +18,8 @@ html, body, #root {
   /*
   background-color: #7f7f7f;   
   border: 1px solid #080808;
-  */ 
-  box-sizing: border-box;
-  height: 72px;
+  */  
+  box-sizing: border-box; 
 } 
      
 .gantt-chart {
