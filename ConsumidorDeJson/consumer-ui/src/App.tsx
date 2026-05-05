@@ -135,22 +135,14 @@ function App({sessionId, token}: AppProps) {
     setDuration(jsonToDuration(jsonData))
   }, [jsonData, verticalAxisData])
 
-  useEffect(() => {
-    //mudar dados
-    console.log(selectedPerson);
-    
-    //chamar gantAllData da PESSOA
-    //...
-    ///
-
-
+  useEffect(() => { 
     if(!ganttAllData){
       return;
     }
     
     //ARRUMAR PARA INCLUIR PESSOAS DEPOIS
     setDataGantt(ganttAllData);
-  }, [selectedPerson, ganttAllData])
+  }, [ganttAllData])
 
   const handleChange = (event: SelectChangeEvent<string>) => {
     setSelectedPerson(event.target.value);

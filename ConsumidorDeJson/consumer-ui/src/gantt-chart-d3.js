@@ -18,8 +18,10 @@ d3.gantt = function() {
 	left : 150
     };
     var selector = 'body';
-    var timeDomainStart = d3.time.day.offset(new Date(),-3);
-    var timeDomainEnd = d3.time.hour.offset(new Date(),+3);
+	var now = new Date();
+
+	var timeDomainStart = d3.time.day.offset(d3.time.day.floor(now), -3);
+	var timeDomainEnd   = d3.time.hour.offset(now, +3);
     // timeDomainMode controls whether we compute bounds from data (fit) or use a fixed range.
     // We default to FIT so a basic chart "just works" without explicit domain settings.
     var timeDomainMode = FIT_TIME_DOMAIN_MODE;
@@ -53,7 +55,7 @@ d3.gantt = function() {
 	var modal = null;
 	
 
-	var tickFormat = "%H:%M";
+	var tickFormat = "%M:%S";
 	var transitionDuration = 250;
 	var chartLines = false;
 	var subchartLines = false;
