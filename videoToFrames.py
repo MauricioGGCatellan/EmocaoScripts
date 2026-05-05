@@ -3,12 +3,7 @@ import time
 import os
 from datetime import timedelta
 import json
-
-def getInitTimestamp():   
-  #REVER IMPLEMENTAÇÃO
-  
-  return 0
-
+ 
 def videoPolling(videoName, timeout=10):
     start = time.time()
     while time.time() - start < timeout:

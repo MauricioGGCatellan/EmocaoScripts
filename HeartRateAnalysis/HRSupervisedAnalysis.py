@@ -31,16 +31,16 @@ def dbPolling(timeout=10):
     return 1
 
 #method: svm, knn ou rf
-def HRAnalyze(method, user):
+def HRAnalyze(method, user, rolling=2):
     #Mudar dbname conforme nome da base de dados (obs: deve ser SQLite)
     pollRes = dbPolling()
 
     if pollRes == 1:
         return {"res": [], "err": "DB não existe."}
-     
+    
     msr_data = pandas.read_csv("HeartRateAnalysis/HEARTRATE_AUTO.csv")
-
-    #Tratamento estatístico para remover outliers de timestamp 
+ 
+    #Tratamento estatístico para remover outliers de heart rate 
     hr_data = msr_data['heartRate'].copy()
  
     removeTimeOutliers(hr_data) 
@@ -48,14 +48,14 @@ def HRAnalyze(method, user):
 
     #Tratamento dados do usuario
     msr_data = msr_data[msr_data['heartRate'].isin(valid_hrdata)]
-    msr_data['hr_mean'] = msr_data['heartRate'].rolling(2).mean()
+    msr_data['hr_mean'] = msr_data['heartRate'].rolling(rolling).mean()
     msr_data = msr_data.dropna()
   
     #Ler CSV de dados de treino (WESAD)
     df = pandas.read_csv("HeartRateAnalysis/heart_rate_emotion_dataset.csv")
     
     #Resolvendo problema de pairing
-    df['hr_mean'] = df['HeartRate'].rolling(2).mean()
+    df['hr_mean'] = df['HeartRate'].rolling(rolling).mean()
     df = df.dropna()
     
     x_mean = df['hr_mean'] 
@@ -87,15 +87,17 @@ def HRAnalyze(method, user):
     #Construir objetos para salvar como json
     objs = []
     i = 0
-
+    starting_time = datetime.strptime(msr_data.iloc[0]['date'] + " " + msr_data.iloc[0]['time'], "%Y-%m-%d %H:%M")
     for pred in y_pred:
         row = msr_data.iloc[i] 
         obj = {}
         date = row['date']
         time = " " + row['time']
         fulldate = datetime.strptime(date + time, "%Y-%m-%d %H:%M")
-  
-        obj['timestamp'] = fulldate.timestamp()
+
+        cmpdate = rolling*(fulldate - starting_time)
+        
+        obj['timestamp'] = cmpdate.total_seconds()
         obj['emotion'] = pred   #Navegar no vetor y_pred
         objs.append(obj)
         i = i + 1

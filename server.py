@@ -2,8 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from videoToFrames import videoToFrames
-from videoToFrames import getInitTimestamp
+from videoToFrames import videoToFrames 
 from facialExpressionAnalysis import framesAnalyze 
 from HeartRateAnalysis.HRSupervisedAnalysis import HRAnalyze
 
@@ -47,7 +46,7 @@ def face_analyze(videoName, user):
  
     output_path = "./ferdata/" + user + "_ferData.json"
     if not os.path.exists(output_path):
-        initTimeStamp = getInitTimestamp()
+        initTimeStamp = 0
         emoData = framesAnalyze(user, frameCount["count"], frameCount["fps"], initTimeStamp)
     else:
         with open(output_path, 'r') as f:

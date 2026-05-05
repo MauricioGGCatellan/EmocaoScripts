@@ -36,7 +36,7 @@ def framesAnalyze(user, imgQuant, fps, initTimeStamp):
     for i in range(0, imgQuant, fps):
         imgName = f'frames_{user}/frame{i}.jpg'
         
-        obj = faceAnalyze(imgName, initTimeStamp + i)
+        obj = faceAnalyze(imgName, initTimeStamp + i/fps)
         if obj != {}:
             objs.append(obj)
 
