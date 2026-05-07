@@ -1,10 +1,5 @@
-import axios from 'axios';
-import type { EmoData } from './converter';
-
-export type APIResult = {
-  res: EmoData[],
-  err: string
-};
+import axios from 'axios'; 
+import type { APIResult, Content } from './apityping';
 
 export async function fetchFerEmoData(person: string, signal: AbortSignal){
     const videoName = 'video.mp4';
@@ -56,17 +51,49 @@ export async function fetchHrEmoData(method:string, person: string, signal: Abor
     }  
 }
 
-export async function fetchVerticalAxisData(sessionId: string, token:string){
+
+export async function fetchVerticalAxisData(sessionId: string, token:string){ 
+    const possibleColumns = ["levels", "Levels", "Scenes", "scenes", "questions", "Questions", "SpeechBubbles", "speechbubbles"];
+
     try {
         const query = `
             {
-                node(id: ${sessionId}) {
-                    ... on Session {
-                        Game { 
-                            name
-                        }
+            node(id: "${sessionId}"){
+                ... on Session{
+                Game{
+                    ... on ComputationalThinking{
+                    name
+                    levels{
+                        content
+                    }
+                    }
+                    ... on Storytelling{
+                    name
+                    Scenes{
+                    content
+                    }
+                    }
+                    ... on Quiz{
+                    name
+                    Questions{
+                        content
+                    }
+                    }
+                    ... on Platform{
+                    name
+                    }
+                    ... on ReverseStorytelling{
+                    name
+                    SpeechBubbles{
+                        content
+                    }
+                    }
+                    ... on Match{
+                    name
                     }
                 }
+                }
+            }
             }
             `;
 
@@ -75,12 +102,23 @@ export async function fetchVerticalAxisData(sessionId: string, token:string){
             Authorization: "Bearer " + token
         }});
 
-        const verticalData = response.data.data;     
+        const verticalData = response.data.data.node;     
 
         console.log(verticalData);
+        //CHECAR SE BATE COM OS TIPOS!!!!!!!!!!!!!
+        //Mudar dps para varios games (talvez)
+        const game = verticalData.Game[0];
+        //iterar possibleColumns para bater com game (in operator)
+        for(let column of possibleColumns){
+            if(column in game){
+ 
+                const res = game[column].map((c: Content) => c.content);
 
-        return verticalData;
-
+                return res;
+            }
+        }
+        return ['Jogo'];
+  
     } catch (error: any) {
         console.error('Error during fetching:', error.message);
 
@@ -91,7 +129,7 @@ export async function fetchVerticalAxisData(sessionId: string, token:string){
 export async function fetchAllUsersData(sessionId:string, token:string) {
     try{
         const query = `{
-            node(id: ${sessionId}){
+            node(id: "${sessionId}"){
                 ... on Session{
                     Users{
                         id
@@ -102,30 +140,27 @@ export async function fetchAllUsersData(sessionId:string, token:string) {
         }`;
 
         const verticalSource = 'http://localhost:8085/graphql'
-
+ 
         const response = await axios.post(verticalSource, {query}, {headers: {
             Authorization: "Bearer " + token
         }});
 
-        const allUsers = response.data.data.getAllUsers;     
-
-        console.log(allUsers);
-
+        const allUsers = response.data.data.node.Users;     
+  
         return allUsers;
     }
     catch (error: any) {
         console.error('Error during fetching:', error.message);
-        const query = `{
-            getAllUsers{
-                id
-                name
-            }
-        }`;
 
-        const verticalSource = 'http://localhost:8085/graphql'
+        return [];
+    }
+}
 
-        const response = await axios.post(verticalSource, {query}, {headers: {
-            Authorization: "Bearer " + token
+export async function auth(){ 
+        const verticalSource = "https://www.googleapis.com/auth/fitness.heart_rate.read"
+
+        const response = await axios.post(verticalSource, {}, {headers: {
+            Authorization: "Bearer "
         }});
 
         const allUsers = response.data.data.getAllUsers;     
@@ -133,5 +168,4 @@ export async function fetchAllUsersData(sessionId:string, token:string) {
         console.log(allUsers);
 
         return allUsers;
-    }
 }

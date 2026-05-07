@@ -254,8 +254,7 @@ d3.gantt = function() {
 			tasks.sort(function(a, b) {
 				return +a.startDate - +b.startDate;
 			});
-			timeDomainStart = tasks[0].startDate;
-			console.log(timeDomainStart, timeDomainEnd)
+			timeDomainStart = tasks[0].startDate; 
 		}
 
 		// Override domain to zoom on the focused task (66% of width, centered) when distortion is off.
@@ -1192,8 +1191,7 @@ d3.gantt = function() {
 	function gantt(selection) {
 		// Primary entry point: render with the current configuration.
 		// We keep this thin so the core logic stays in updateChart().
-		selection.each(function(data) {
-			console.log(data);
+		selection.each(function(data) { 
 			
 			return updateChart(data);
 		})

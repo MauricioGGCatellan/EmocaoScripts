@@ -40,8 +40,8 @@ function App({sessionId, token}: AppProps) {
 
   const [duration, setDuration] = useState<number>(0);
  
-	const tableau10 = d3.scale.category10().range();
-  console.log(tableau10)
+	const tableau10 = d3.scale.category10().range(); 
+
   const boxStyle = {
         display: "flex",
         flexDirection: "column",
@@ -127,8 +127,7 @@ function App({sessionId, token}: AppProps) {
   useEffect(() => {
     setGanttAllData(jsonToGantt(jsonData, verticalAxisData)); 
 
-    const allEmotions = jsonToAllEmotions(jsonData);
-    console.log(allEmotions);
+    const allEmotions = jsonToAllEmotions(jsonData); 
 
     setAllEmos(allEmotions);
 

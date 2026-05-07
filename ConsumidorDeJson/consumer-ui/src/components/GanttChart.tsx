@@ -23,9 +23,7 @@ export function GanttChart({ tasks, taskNames, taskStatus, width = 800, height =
   useEffect(() => {
     if (!svgRef.current) return;
  
-    console.log(tasks);
-    console.log(taskNames);
-    console.log(taskStatus);
+    console.log(tasks); 
     const start = d3.min(tasks, (d:Task) => d.startDate);
     const end = d3.max(tasks, (d:Task) => d.endDate);
 
@@ -41,7 +39,6 @@ export function GanttChart({ tasks, taskNames, taskStatus, width = 800, height =
     const svgCall = svg   
       .datum(tasks)
  
-    console.log("datum check", d3.select(svgRef.current).datum());
     svgCall.call(d3gantt);
 
   }, [tasks, width, height, taskNames, taskStatus]);
