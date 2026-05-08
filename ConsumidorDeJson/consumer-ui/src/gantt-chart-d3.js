@@ -18,15 +18,15 @@ d3.gantt = function() {
 	left : 150
     };
     var selector = 'body';
-	var now = new Date();
 
-	var timeDomainStart = d3.time.day.offset(d3.time.day.floor(now), -3);
-	var timeDomainEnd   = d3.time.hour.offset(now, +3);
+    var fixedTimeDomainStart = new Date(+timeDomainStart);
+    var fixedTimeDomainEnd = new Date(+timeDomainEnd);
     // timeDomainMode controls whether we compute bounds from data (fit) or use a fixed range.
     // We default to FIT so a basic chart "just works" without explicit domain settings.
     var timeDomainMode = FIT_TIME_DOMAIN_MODE;
     var taskTypes = [];
     var taskStatus = {};
+    var taskStatus = [];
 	var currentTasks = [];
     
     var height = (document.body.clientHeight) - margin.top - margin.bottom-5;
@@ -40,12 +40,24 @@ d3.gantt = function() {
 	var rowLayout = {};
 	var rowPadding = 5;
 	var minRowHeight = 8;
+	var rowBarInset = 0;
 	var totalChartHeight = 0;
 
 	// Root SVG and translated group for the main chart; stored to reuse on redraw.
 	var rootSvg = null; // the <svg> element from the DOM
     var ganttChartGroup = null; // the <g> element from the DOM, inside the <svg> but with
 								// an offset because of the margins
+	var linksClipId = "gantt-links-clip-" + Math.random().toString(36).slice(2);
+	var purpleDotsPatternId = "gantt-bar-purple-dots-" + Math.random().toString(36).slice(2);
+	var tealStripesPatternId = "gantt-bar-teal-stripes-" + Math.random().toString(36).slice(2);
+	var yellowGridPatternId = "gantt-bar-yellow-grid-" + Math.random().toString(36).slice(2);
+	var expandedPurpleBackdropPatternId = "gantt-bar-expanded-purple-backdrop-" + Math.random().toString(36).slice(2);
+	var expandedGreenBackdropPatternId = "gantt-bar-expanded-green-backdrop-" + Math.random().toString(36).slice(2);
+	var expandedYellowBackdropPatternId = "gantt-bar-expanded-yellow-backdrop-" + Math.random().toString(36).slice(2);
+	var linksClipRect = null;
+	var sceneLegendGroup = null;
+	var dateBadgeGroup = null;
+	var expandedYLabelsGroup = null;
 	// Axes are managed by a helper so tick generation and DOM selection live
 	// outside the core chart logic.
 	var axisManager = createAxisManager(d3);
@@ -53,31 +65,67 @@ d3.gantt = function() {
 	var linkManager = createLinksLayerManager(d3);
 	// Modal UI helper is created once per chart instance.
 	var modal = null;
+	var popupCatalog = null;
+	var currentUserInfo = null;
 	
 
-	var tickFormat = "%M:%S";
+	var xAxisTickValues = null;
+	var yAxisLabelFormatter = null;
+	var axisLabelsEnabled = true;
+	var axisLinesEnabled = true;
+	var subchartAxisLabelsEnabled = true;
+	var subchartAxisLinesEnabled = true;
 	var transitionDuration = 250;
 	var chartLines = false;
 	var subchartLines = false;
 	var xAxisDistortion = true;
 	var hideUnvisitedRows = false;
+	var sceneLegendEnabled = true;
+	var sceneLegendMode = "scene-categories";
+	var dateBadgeEnabled = true;
 	var focusTask = null;
 	var yScale = d3.scale.linear();
 	var zoomEnabled = true;
 	var rectZoomEnabled = false;
-	var zoomBehavior = null;
-	var zoomBrush = null;
-	var brushGroup = null;
+	var zoomAllowedEventTypes = { wheel: true, mousewheel: true, MozMousePixelScroll: true };
 	var yBrushScale = d3.scale.linear();
 	var xZoomDomain = null;
+	var xZoomBoundsDomain = [ new Date(+timeDomainStart), new Date(+timeDomainEnd) ];
 	var yZoomState = null;
 	var renderRowLayout = rowLayout;
-	var iconTooltip = null;
+	var renderTaskTypes = [];
+	var expandVisibleLock = null;
+	var iconTooltipManager = createIconTooltipManager({ d3: d3 });
+	var configuredLeftMargin = margin.left;
 	// Use a stable palette so status-to-color mapping is deterministic.
 	// This avoids colors "jumping" when tasks are added/removed or status order changes.
 	var tableau10 = d3.scale.category10().range();
 	var barClassOrder = [];
 	var uidCounter = 0;
+	var runtimeMarker = "gantt-chart-d3.js@2026-03-04-zoom-wheel-only-v1";
+	if (typeof window !== "undefined") {
+		window.__GANTT_RUNTIME_MARKER__ = runtimeMarker;
+	}
+
+	var zoomManager = createZoomManager({
+		d3: d3,
+		document: document,
+		allowUnclampedXScale: true,
+		allowedEventTypes: zoomAllowedEventTypes,
+		getState: function() {
+			return {
+				xZoomDomain: cloneDomain(xZoomDomain),
+				yZoomState: yZoomState
+			};
+		},
+		setState: function(nextState) {
+			var nextXZoomDomain = nextState ? cloneDomain(nextState.xZoomDomain) : null;
+			xZoomDomain = domainsMatch(nextXZoomDomain, xZoomBoundsDomain)
+				? null
+				: nextXZoomDomain;
+			yZoomState = nextState ? nextState.yZoomState : null;
+		}
+	});
 
 	// ---------------------------------------------------------------------------
 	// Small helpers + status/color utilities
@@ -94,7 +142,6 @@ d3.gantt = function() {
 
 	function refreshBarClassOrder() {
 		barClassOrder = [];
-		 
 		if (taskStatus) {
 			Object.keys(taskStatus).forEach(function(key) {
 				var className = taskStatus[key];
@@ -105,21 +152,178 @@ d3.gantt = function() {
 		}
 	}
 
-	function getBaseBarClass(d) { 
-		if (d && taskStatus && taskStatus[d.status]) {  
-			return taskStatus[d.status];
+	function normalizeStatusKey(value) {
+		return String(value || "").trim().toUpperCase();
+	}
+
+	function isUnusedStatusKey(value) {
+		return normalizeStatusKey(value).indexOf("UNUSED_") === 0;
+	}
+
+	function getBarClassForStatus(status) {
+		var rawStatus = String(status || "");
+		if (taskStatus && taskStatus[rawStatus]) {
+			return taskStatus[rawStatus];
+		}
+		var normalized = normalizeStatusKey(rawStatus);
+		if (!normalized || !taskStatus) {
+			return "bar";
+		}
+		var statusKeys = Object.keys(taskStatus);
+		for (var i = 0; i < statusKeys.length; i++) {
+			var key = statusKeys[i];
+			if (normalizeStatusKey(key) === normalized) {
+				return taskStatus[key];
+			}
 		}
 		return "bar";
 	}
 
-	function getConditionalBarClass(d) {  
-		if (!d || d.status !== "PERGUNTA") { 
+	function getBaseBarClass(d) {
+		if (d && d.__parentTask && normalizeStatusKey(d.status) === "DIALOGO") {
+			var parentBaseClass = getExpandedBackdropBaseClass(d.__parentTask) || getBaseBarClass(d.__parentTask);
+			if (parentBaseClass === "bar-purple") {
+				return "bar-purple";
+			}
+			if (parentBaseClass === "bar-green") {
+				return hasDialogInteraction(d) ? "bar-green" : "bar-purple";
+			}
+		}
+		// Prefer the task's own semantic status when available so expanded
+		// subtasks keep their texture/palette. Only fall back to the parent
+		// color for legacy rows that do not expose a mapped status.
+		if (d) {
+			var ownClass = getBarClassForStatus(d.status);
+			if (ownClass && ownClass !== "bar") {
+				return ownClass;
+			}
+		}
+		if (d && d.__parentTask && !hasOutcomeMetadata(d)) {
+			var parentClass = getBaseBarClass(d.__parentTask);
+			if (parentClass && parentClass !== "bar") {
+				return parentClass;
+			}
+		}
+		return "bar";
+	}
+
+	function getSemanticBaseColor(baseClass) {
+		var colorByClass = {
+			"bar-purple": "#aa4499",
+			"bar-green": "#44aa99",
+			"bar-yellow": "#ddcc77"
+		};
+		return colorByClass[baseClass] || null;
+	}
+
+	function getSemanticContrastColor(baseClass) {
+		var colorByClass = {
+			"bar-purple": "#aa4499",
+			"bar-green": "#44aa99",
+			"bar-yellow": "#ddcc77"
+		};
+		return colorByClass[baseClass] || null;
+	}
+
+	function hasDialogInteraction(task) {
+		return !!task &&
+			normalizeStatusKey(task.status) === "DIALOGO" &&
+			Array.isArray(task.alternatives) &&
+			task.alternatives.length > 0 &&
+			typeof task.selectedAlternative === "number";
+	}
+
+	function getOutcomeCorrectList(task) {
+		if (!task) return [];
+		var raw = Array.isArray(task.correctAlternative)
+			? task.correctAlternative
+			: [ task.correctAlternative ];
+		var filtered = raw.filter(function(value) {
+			return typeof value === "number" && isFinite(value);
+		});
+		// Datasets legacy: when there is selectedAlternative but no explicit
+		// correctAlternative in PERGUNTA rows, treat option 0 as canonical "correct".
+		if (
+			!filtered.length &&
+			normalizeStatusKey(task.status) === "PERGUNTA" &&
+			typeof task.selectedAlternative === "number"
+		) {
+			return [ 0 ];
+		}
+		return filtered;
+	}
+
+	function hasExplicitCorrectAlternative(task) {
+		if (!task) return false;
+		var raw = Array.isArray(task.correctAlternative)
+			? task.correctAlternative
+			: [ task.correctAlternative ];
+		return raw.some(function(value) {
+			return typeof value === "number" && isFinite(value);
+		});
+	}
+
+	function hasOutcomeMetadata(task) {
+		return !!task && (
+			hasExplicitCorrectAlternative(task) ||
+			(
+				normalizeStatusKey(task.status) === "PERGUNTA" &&
+				typeof task.selectedAlternative === "number"
+			)
+		);
+	}
+
+	function inheritsParentSemanticColor(task) {
+		if (!task || !task.__parentTask || task.status === "PERGUNTA") {
+			return false;
+		}
+		var ownClass = getBarClassForStatus(task.status);
+		var resolvedClass = getBaseBarClass(task);
+		return !!ownClass && ownClass !== resolvedClass;
+	}
+
+	function shouldUseExpandedBackdrop(task) {
+		var normalizedStatus = normalizeStatusKey(task && task.status);
+		return !!task &&
+			!!task.expanded &&
+			Array.isArray(task.subtasks) &&
+			task.subtasks.length > 0 &&
+			(
+				normalizedStatus === "CENA" ||
+				normalizedStatus === "QUIZ"
+			);
+	}
+
+	function getExpandedBackdropBaseClass(task) {
+		if (!shouldUseExpandedBackdrop(task)) {
+			return null;
+		}
+		return getBaseBarClass(task);
+	}
+
+	function getExpandedBackdropPatternId(baseClass) {
+		if (baseClass === "bar-purple") {
+			return expandedPurpleBackdropPatternId;
+		}
+		if (baseClass === "bar-green") {
+			return expandedGreenBackdropPatternId;
+		}
+		if (baseClass === "bar-yellow") {
+			return expandedYellowBackdropPatternId;
+		}
+		return null;
+	}
+
+	function getConditionalBarClass(d) {
+		if (!d || !hasOutcomeMetadata(d)) {
 			return "";
 		}
 		var hasSelected = typeof d.selectedAlternative === "number";
-		var correctList = Array.isArray(d.correctAlternative) ? d.correctAlternative : [ d.correctAlternative ];
-		var hasCorrect = correctList.some(function(value) { return typeof value === "number"; });
-		if (hasSelected && hasCorrect) {
+		var correctList = getOutcomeCorrectList(d);
+		if (hasSelected) {
+			if (!correctList.length) {
+				return "bar-pergunta-unanswered";
+			}
 			var isCorrect = correctList.indexOf(d.selectedAlternative) !== -1;
 			return isCorrect ? "bar-pergunta-correct" : "bar-pergunta-wrong";
 		}
@@ -156,19 +360,196 @@ d3.gantt = function() {
 		var baseClass = getBaseBarClass(d);
 		var depth = getTaskDepth(d);
 		var conditionalClass = getConditionalBarClass(d);
-		return baseClass + " task-bar layer-" + depth + (conditionalClass ? " " + conditionalClass : "");
+		var inheritedParentClass = inheritsParentSemanticColor(d) ? " inherited-parent-color" : "";
+		var expandedBackdropClass = shouldUseExpandedBackdrop(d) ? " expanded-backdrop" : "";
+		return baseClass + " task-bar layer-" + depth + inheritedParentClass + expandedBackdropClass + (conditionalClass ? " " + conditionalClass : "");
 	}
 
 	function getBarFill(d) {
 		var conditionalClass = getConditionalBarClass(d);
-		if (!conditionalClass) {
+		if (conditionalClass) {
 			return null;
+		}
+		var expandedBackdropBaseClass = getExpandedBackdropBaseClass(d);
+		if (expandedBackdropBaseClass) {
+			var backdropPatternId = getExpandedBackdropPatternId(expandedBackdropBaseClass);
+			return backdropPatternId ? "url(#" + backdropPatternId + ")" : getBarColorByClass(expandedBackdropBaseClass);
+		}
+		var baseClass = getBaseBarClass(d);
+		if (inheritsParentSemanticColor(d) && normalizeStatusKey(d && d.status) !== "DIALOGO") {
+			var contrast = getSemanticContrastColor(baseClass);
+			if (contrast) {
+				return contrast;
+			}
+		}
+		if (baseClass === "bar-purple") {
+			return "url(#" + purpleDotsPatternId + ")";
+		}
+		if (baseClass === "bar-green") {
+			return "url(#" + tealStripesPatternId + ")";
+		}
+		if (baseClass === "bar-yellow") {
+			return "url(#" + yellowGridPatternId + ")";
 		}
 		return getBarColor(d);
 	}
 
+	function getBarOpacity(d) {
+		return 1;
+	}
+
+	function getBarStroke(d) {
+		var expandedBackdropBaseClass = getExpandedBackdropBaseClass(d);
+		return expandedBackdropBaseClass ? getBarColorByClass(expandedBackdropBaseClass) : null;
+	}
+
+	function getBarStrokeWidth(d) {
+		return getExpandedBackdropBaseClass(d) ? 1.6 : null;
+	}
+
+	function ensureBarPatterns(defs) {
+		if (!defs || defs.empty()) return;
+
+		var purplePattern = defs.select("#" + purpleDotsPatternId);
+		if (purplePattern.empty()) {
+			purplePattern = defs.append("pattern")
+				.attr("id", purpleDotsPatternId)
+				.attr("patternUnits", "userSpaceOnUse")
+				.attr("width", 8)
+				.attr("height", 8);
+			purplePattern.append("rect")
+				.attr("width", 8)
+				.attr("height", 8)
+				.attr("fill", getSemanticBaseColor("bar-purple"));
+			purplePattern.append("circle")
+				.attr("cx", 2)
+				.attr("cy", 2)
+				.attr("r", 1.2)
+				.attr("fill", "rgba(108, 37, 97, 0.42)");
+			purplePattern.append("circle")
+				.attr("cx", 6)
+				.attr("cy", 6)
+				.attr("r", 1.2)
+				.attr("fill", "rgba(108, 37, 97, 0.42)");
+		}
+
+		var tealPattern = defs.select("#" + tealStripesPatternId);
+		if (tealPattern.empty()) {
+			tealPattern = defs.append("pattern")
+				.attr("id", tealStripesPatternId)
+				.attr("patternUnits", "userSpaceOnUse")
+				.attr("width", 8)
+				.attr("height", 8)
+				.attr("patternTransform", "rotate(45)");
+			tealPattern.append("rect")
+				.attr("width", 8)
+				.attr("height", 8)
+				.attr("fill", getSemanticBaseColor("bar-green"));
+			tealPattern.append("rect")
+				.attr("x", 0)
+				.attr("y", 0)
+				.attr("width", 3)
+				.attr("height", 8)
+				.attr("fill", "#37897c");
+		}
+
+		var yellowPattern = defs.select("#" + yellowGridPatternId);
+		if (yellowPattern.empty()) {
+			yellowPattern = defs.append("pattern")
+				.attr("id", yellowGridPatternId)
+				.attr("patternUnits", "userSpaceOnUse")
+				.attr("width", 8)
+				.attr("height", 8);
+			yellowPattern.append("rect")
+				.attr("width", 8)
+				.attr("height", 8)
+				.attr("fill", getSemanticBaseColor("bar-yellow"));
+			yellowPattern.append("path")
+				.attr("d", "M 8 0 L 0 0 0 8")
+				.attr("fill", "none")
+				.attr("stroke", "#b1a35f")
+				.attr("stroke-width", 1);
+		}
+
+		var expandedPurpleBackdropPattern = defs.select("#" + expandedPurpleBackdropPatternId);
+		if (expandedPurpleBackdropPattern.empty()) {
+			expandedPurpleBackdropPattern = defs.append("pattern")
+				.attr("id", expandedPurpleBackdropPatternId)
+				.attr("patternUnits", "userSpaceOnUse")
+				.attr("width", 12)
+				.attr("height", 12)
+				.attr("patternTransform", "rotate(45)");
+			expandedPurpleBackdropPattern.append("rect")
+				.attr("width", 12)
+				.attr("height", 12)
+				.attr("fill", "#eed5e6");
+			expandedPurpleBackdropPattern.append("rect")
+				.attr("x", 0)
+				.attr("y", 0)
+				.attr("width", 5)
+				.attr("height", 12)
+				.attr("fill", "#e1bdd7");
+		}
+
+		var expandedGreenBackdropPattern = defs.select("#" + expandedGreenBackdropPatternId);
+		if (expandedGreenBackdropPattern.empty()) {
+			expandedGreenBackdropPattern = defs.append("pattern")
+				.attr("id", expandedGreenBackdropPatternId)
+				.attr("patternUnits", "userSpaceOnUse")
+				.attr("width", 12)
+				.attr("height", 12)
+				.attr("patternTransform", "rotate(45)");
+			expandedGreenBackdropPattern.append("rect")
+				.attr("width", 12)
+				.attr("height", 12)
+				.attr("fill", "#d7eae7");
+			expandedGreenBackdropPattern.append("rect")
+				.attr("x", 0)
+				.attr("y", 0)
+				.attr("width", 5)
+				.attr("height", 12)
+				.attr("fill", "#caddda");
+		}
+
+		var expandedYellowBackdropPattern = defs.select("#" + expandedYellowBackdropPatternId);
+		if (expandedYellowBackdropPattern.empty()) {
+			expandedYellowBackdropPattern = defs.append("pattern")
+				.attr("id", expandedYellowBackdropPatternId)
+				.attr("patternUnits", "userSpaceOnUse")
+				.attr("width", 12)
+				.attr("height", 12)
+				.attr("patternTransform", "rotate(45)");
+			expandedYellowBackdropPattern.append("rect")
+				.attr("width", 12)
+				.attr("height", 12)
+				.attr("fill", "#f4ebc1");
+			expandedYellowBackdropPattern.append("rect")
+				.attr("x", 0)
+				.attr("y", 0)
+				.attr("width", 5)
+				.attr("height", 12)
+				.attr("fill", "#e9dd9a");
+		}
+
+	}
+
 	function getBarColor(d) {
 		var baseClass = getBaseBarClass(d);
+		return getBarColorByClass(baseClass);
+	}
+
+	function getBarColorByClass(baseClass) {
+		var colorByClass = {
+			"bar-purple": getSemanticBaseColor("bar-purple"),
+			"bar-green": getSemanticBaseColor("bar-green"),
+			"bar-yellow": getSemanticBaseColor("bar-yellow"),
+			"bar-pergunta-correct": "#117733",
+			"bar-pergunta-wrong": "#882255",
+			"bar-pergunta-unanswered": getSemanticBaseColor("bar-yellow")
+		};
+		if (colorByClass[baseClass]) {
+			return colorByClass[baseClass];
+		}
 		var baseIndex = barClassOrder.indexOf(baseClass);
 		if (baseIndex < 0) {
 			baseIndex = 0;
@@ -176,11 +557,258 @@ d3.gantt = function() {
 		return tableau10[baseIndex % tableau10.length];
 	}
 
+	function getBarFillByClass(baseClass) {
+		if (baseClass === "bar-purple") {
+			return "url(#" + purpleDotsPatternId + ")";
+		}
+		if (baseClass === "bar-green") {
+			return "url(#" + tealStripesPatternId + ")";
+		}
+		if (baseClass === "bar-yellow") {
+			return "url(#" + yellowGridPatternId + ")";
+		}
+		return getBarColorByClass(baseClass);
+	}
+
+	function hasQuestionTasks(tasks) {
+		var found = false;
+		function scan(list) {
+			(list || []).forEach(function(task) {
+				if (found || !task) return;
+				if (hasOutcomeMetadata(task)) {
+					found = true;
+					return;
+				}
+				if (task.subtasks && task.subtasks.length) {
+					scan(task.subtasks);
+				}
+			});
+		}
+		scan(tasks);
+		return found;
+	}
+
+	function buildSceneLegendData(tasks) {
+		if (sceneLegendMode === "question-outcome") {
+			if (!hasQuestionTasks(tasks)) {
+				return [];
+			}
+			return [
+				{
+					id: "PERGUNTA_CORRETA",
+					label: "Resposta correta",
+					color: getBarColorByClass("bar-pergunta-correct"),
+					fill: getBarColorByClass("bar-pergunta-correct")
+				},
+				{
+					id: "PERGUNTA_INCORRETA",
+					label: "Resposta incorreta",
+					color: getBarColorByClass("bar-pergunta-wrong"),
+					fill: getBarColorByClass("bar-pergunta-wrong")
+				}
+			];
+		}
+
+		// Default legend for the individual main chart.
+		return [
+			{
+				id: "SEM_INTERACOES",
+				label: "Eventos sem interações",
+				color: getBarColorByClass("bar-purple"),
+				fill: getBarFillByClass("bar-purple")
+			},
+			{
+				id: "COM_INTERACOES",
+				label: "Eventos com interações",
+				color: getBarColorByClass("bar-green"),
+				fill: getBarFillByClass("bar-green")
+			},
+			{
+				id: "MINI_JOGOS",
+				label: "Mini-jogos",
+				color: getBarColorByClass("bar-yellow"),
+				fill: getBarFillByClass("bar-yellow")
+			}
+		];
+	}
+
+	function updateSceneLegend(tasks) {
+		if (!sceneLegendGroup) return;
+
+		if (!sceneLegendEnabled) {
+			sceneLegendGroup.selectAll("*").remove();
+			return;
+		}
+
+		var lineData = buildSceneLegendData(tasks);
+		var isQuestionLegend = sceneLegendMode === "question-outcome";
+		var itemHeight = isQuestionLegend ? 28 : 34;
+		var padX = isQuestionLegend ? 16 : 18;
+		var padY = isQuestionLegend ? 12 : 16;
+		var swatch = isQuestionLegend ? 14 : 18;
+		var longest = 0;
+		lineData.forEach(function(item) {
+			var len = item && item.label ? String(item.label).length : 0;
+			if (len > longest) longest = len;
+		});
+		var legendWidth = isQuestionLegend
+			? Math.max(210, (longest * 8) + 66)
+			: Math.max(270, (longest * 8) + 78);
+		var legendHeight = (lineData.length * itemHeight) + (padY * 2);
+		var legendX = isQuestionLegend
+			? Math.max(0, width - legendWidth - 10)
+			: 10;
+		var legendY = isQuestionLegend
+			? 24
+			: Math.max(24, totalChartHeight - legendHeight - 18);
+
+		sceneLegendGroup.attr("transform", "translate(" + (margin.left + legendX) + "," + (margin.top + legendY) + ")");
+
+		var bgJoin = sceneLegendGroup.selectAll("rect.gantt-scene-legend-bg").data(lineData.length ? [ null ] : []);
+		bgJoin.enter()
+			.append("rect")
+			.attr("class", "gantt-scene-legend-bg");
+		bgJoin
+			.attr("width", legendWidth)
+			.attr("height", legendHeight);
+		bgJoin.exit().remove();
+
+		// Rebuild legend items in data order to keep ordering deterministic.
+		sceneLegendGroup.selectAll("g.gantt-scene-legend-item").remove();
+
+		var allItems = sceneLegendGroup.selectAll("g.gantt-scene-legend-item")
+			.data(lineData)
+			.enter()
+			.append("g")
+			.attr("class", "gantt-scene-legend-item")
+			.attr("transform", function(d, i) {
+				return "translate(" + padX + "," + (padY + i * itemHeight + itemHeight / 2) + ")";
+			});
+
+		allItems.append("rect")
+			.attr("class", "gantt-scene-legend-swatch")
+			.attr("x", 0)
+			.attr("y", -(swatch / 2))
+			.attr("width", swatch)
+			.attr("height", swatch)
+			.style("fill", function(d) { return d.fill || d.color; })
+			.style("stroke", function(d) { return d.color || "#1b1b1b"; })
+			.style("stroke-width", 0.75);
+
+		allItems.append("text")
+			.attr("class", "gantt-scene-legend-label")
+			.attr("dominant-baseline", "middle")
+			.attr("x", swatch + 12)
+			.text(function(d) { return d.label || d.id; });
+	}
+
+	function bringLegendToFront() {
+		if (!sceneLegendGroup || typeof sceneLegendGroup.node !== "function") return;
+		var legendNode = sceneLegendGroup.node();
+		if (!legendNode || !legendNode.parentNode) return;
+		legendNode.parentNode.appendChild(legendNode);
+	}
+
+	function getLabelMeasureFont() {
+		var container = document.querySelector(selector);
+		var bodyStyle = window.getComputedStyle(document.body);
+		var family = bodyStyle && bodyStyle.fontFamily ? bodyStyle.fontFamily : "sans-serif";
+		var size = "12px";
+		if (container) {
+			var containerStyle = window.getComputedStyle(container);
+			if (containerStyle && containerStyle.fontFamily) {
+				family = containerStyle.fontFamily;
+			}
+		}
+		return size + " " + family;
+	}
+
+	function getMeasuredTaskLabel(name) {
+		if (!axisLabelsEnabled) {
+			return "";
+		}
+		var raw = name == null ? "" : String(name);
+		if (typeof yAxisLabelFormatter !== "function") {
+			return raw;
+		}
+		var formatted = yAxisLabelFormatter(raw, raw);
+		return formatted == null ? raw : String(formatted);
+	}
+
+	function measureMaxTaskLabelWidth(taskNames) {
+		if (!taskNames || !taskNames.length) return 0;
+		var canvas = measureMaxTaskLabelWidth._canvas;
+		if (!canvas) {
+			canvas = document.createElement("canvas");
+			measureMaxTaskLabelWidth._canvas = canvas;
+		}
+		var ctx = canvas.getContext("2d");
+		if (!ctx) return 0;
+		ctx.font = getLabelMeasureFont();
+		var maxWidth = 0;
+		taskNames.forEach(function(name) {
+			var text = getMeasuredTaskLabel(name);
+			var measured = ctx.measureText(text).width;
+			if (measured > maxWidth) {
+				maxWidth = measured;
+			}
+		});
+		return maxWidth;
+	}
+
+	function getExpandedTask() {
+		if (!currentTasks || !currentTasks.length) return null;
+		for (var i = 0; i < currentTasks.length; i++) {
+			if (currentTasks[i] && currentTasks[i].expanded) {
+				return currentTasks[i];
+			}
+		}
+		return null;
+	}
+
+	function getDialogLabelItems(task) {
+		var subtasks = task && Array.isArray(task.subtasks) ? task.subtasks : [];
+		var dialogs = subtasks.filter(function(subtask) {
+			return subtask && String(subtask.status || "").toUpperCase() === "DIALOGO";
+		});
+		var source = dialogs.length ? dialogs : subtasks;
+		return source.map(function(subtask, index) {
+			return {
+				key: ensureTaskId(subtask || {}) || ((task && task.taskName ? task.taskName : "task") + "-dialog-" + index),
+				label: subtask && subtask.taskName ? String(subtask.taskName) : ("Dialogo " + (index + 1))
+			};
+		});
+	}
+
+	function getTaskLabelNamesForMargin(taskNames) {
+		var names = (taskNames || []).slice();
+		var expandedTask = getExpandedTask();
+		if (expandedTask && taskNames && taskNames.indexOf(expandedTask.taskName) !== -1) {
+			getDialogLabelItems(expandedTask).forEach(function(item) {
+				if (item && item.label) {
+					names.push(item.label);
+				}
+			});
+		}
+		return names;
+	}
+
+	function updateDynamicLeftMargin(taskNames) {
+		var labelWidth = measureMaxTaskLabelWidth(taskNames);
+		// Reserve extra breathing room only when axis labels are visible.
+		// When labels are hidden, keep the configured left margin exactly.
+		var extraPadding = axisLabelsEnabled ? 20 : 0;
+		var targetLeft = Math.max(configuredLeftMargin, Math.ceil(labelWidth) + extraPadding);
+		if (targetLeft === margin.left) return;
+		var outerWidth = width + margin.left + margin.right;
+		margin.left = targetLeft;
+		width = Math.max(220, outerWidth - margin.left - margin.right);
+	}
+
 	var rectTransform = function(d) {
 		// Translate each task group to its x/y position.
 		// Using a group transform keeps the bar, icon, and subchart
 		// aligned as one unit, and makes transitions simpler.
-  
 		var xPos = (d && typeof d.x === "number") ? d.x : xScale(d.startDate);
 		var yPos = (d && typeof d.y === "number") ? d.y : (renderRowLayout[d.taskName] ? renderRowLayout[d.taskName].y : 0);
 		return "translate(" + xPos + "," + yPos + ")";
@@ -206,7 +834,7 @@ d3.gantt = function() {
 		// Subcharts listen for clicks to collapse the parent; this
 		// guard prevents collapsing when the user clicked a bar.
 		if (!target || !target.closest) return false;
-		return !!target.closest(".task-bar");
+		return !!target.closest(".task-bar, .task-info-icon, .task-expand-icon");
 	}
 
 	// Chart height includes top/bottom margins so the SVG size matches content.
@@ -219,7 +847,9 @@ d3.gantt = function() {
 	}
 
 	refreshBarClassOrder();
-    var xScale = d3.time.scale().domain([ timeDomainStart, timeDomainEnd ]).range([ 0, width ]).clamp(true); 
+
+    var xScale = d3.time.scale().domain([ timeDomainStart, timeDomainEnd ]).range([ 0, width ]).clamp(true);
+
 	// the y axis is not used anymore, rowLayout deals with it
     //var y = d3.scale.ordinal().domain(taskTypes).rangeRoundBands([ 0, height - margin.top - margin.bottom ], .1);
 
@@ -232,30 +862,92 @@ d3.gantt = function() {
     // In "fixed" mode we keep explicit bounds set by the caller. The optional focus
     // zoom is a UX feature: when distortion is off and a task is expanded, we
     // center and enlarge its span so details are easier to read.
-    var setTimeDomain = function(tasks) {
-		// Compute or preserve the visible time range.
-		// In "fit" mode, we derive bounds from the earliest start and latest end.
-		// In "fixed" mode, we keep whatever the caller previously set.
-		// The optional focus zoom (when distortion is off) enlarges a single
-		// expanded task for readability.
-
-		timeDomainStart = d3.time.day.offset(new Date(),-3);
-    	timeDomainEnd = d3.time.hour.offset(new Date(),+3);
-		if (timeDomainMode === FIT_TIME_DOMAIN_MODE) {
-			if (tasks === undefined || tasks.length < 1) {
-				timeDomainStart = d3.time.day.offset(new Date(), -3);
-				timeDomainEnd = d3.time.hour.offset(new Date(), +3);
-				return;
-			}
-			tasks.sort(function(a, b) {	
-				return +a.endDate - +b.endDate;
-			});
-			timeDomainEnd = tasks[tasks.length - 1].endDate;
-			tasks.sort(function(a, b) {
-				return +a.startDate - +b.startDate;
-			});
-			timeDomainStart = tasks[0].startDate; 
+	function computeFitTimeBounds(tasks) {
+		if (tasks === undefined || !tasks.length) {
+			return [ d3.time.day.offset(new Date(), -3), d3.time.hour.offset(new Date(), +3) ];
 		}
+		var minStart = null;
+		var maxEnd = null;
+		tasks.forEach(function(task) {
+			if (!task) return;
+			var start = task.startDate;
+			var end = task.endDate;
+			if (start && (!minStart || +start < +minStart)) {
+				minStart = start;
+			}
+			if (end && (!maxEnd || +end > +maxEnd)) {
+				maxEnd = end;
+			}
+		});
+		if (!minStart || !maxEnd || +minStart === +maxEnd) {
+			return [ d3.time.day.offset(new Date(), -3), d3.time.hour.offset(new Date(), +3) ];
+		}
+		return +minStart <= +maxEnd ? [ minStart, maxEnd ] : [ maxEnd, minStart ];
+	}
+
+	function cloneDomain(domain) {
+		if (!domain || domain.length !== 2 || !domain[0] || !domain[1]) return null;
+		return [ new Date(+domain[0]), new Date(+domain[1]) ];
+	}
+
+	function getExpandFloor(value) {
+		return (typeof value === "number" && isFinite(value) && value > 0) ? value : 0;
+	}
+
+	function getExpandedTaskByName(taskName) {
+		if (!taskName || !currentTasks || !currentTasks.length) return null;
+		for (var i = 0; i < currentTasks.length; i++) {
+			var task = currentTasks[i];
+			if (task && task.taskName === taskName && task.expanded) {
+				return task;
+			}
+		}
+		return null;
+	}
+
+	function getExpandedMinHeightForTaskName(taskName) {
+		var expandedTask = getExpandedTaskByName(taskName);
+		return expandedTask ? getExpandFloor(expandedTask.__expandMinHeight) : 0;
+	}
+
+	function captureTaskExpandFloors(task) {
+		if (!task || !xScale || !renderRowLayout) return;
+		var row = renderRowLayout[task.taskName];
+		if (!row) return;
+
+		var rawXStart = xScale(task.startDate);
+		var rawXEnd = xScale(task.endDate);
+		var xStart = Math.max(0, Math.min(width, rawXStart));
+		var xEnd = Math.max(0, Math.min(width, rawXEnd));
+		var widthValue = Math.max(0, xEnd - xStart);
+
+		var rawYStart = row.y;
+		var rawYEnd = rawYStart + row.height;
+		var yStart = Math.max(0, Math.min(totalChartHeight, rawYStart));
+		var yEnd = Math.max(0, Math.min(totalChartHeight, rawYEnd));
+		var heightValue = Math.max(0, yEnd - yStart);
+
+		task.__expandMinWidth = widthValue;
+		task.__expandMinHeight = heightValue;
+	}
+
+	function domainsMatch(domainA, domainB) {
+		if (!domainA || !domainB || domainA.length !== 2 || domainB.length !== 2) {
+			return false;
+		}
+		return (+domainA[0] === +domainB[0]) && (+domainA[1] === +domainB[1]);
+	}
+
+    var setTimeDomain = function(tasks) {
+		var baseDomain;
+		if (timeDomainMode === FIT_TIME_DOMAIN_MODE) {
+			baseDomain = computeFitTimeBounds(tasks);
+		} else {
+			baseDomain = [ fixedTimeDomainStart, fixedTimeDomainEnd ];
+		}
+		timeDomainStart = baseDomain[0];
+		timeDomainEnd = baseDomain[1];
+		xZoomBoundsDomain = cloneDomain(baseDomain);
 
 		// Override domain to zoom on the focused task (66% of width, centered) when distortion is off.
 		// This "manual zoom" keeps the task readable without turning on the non-linear
@@ -263,10 +955,16 @@ d3.gantt = function() {
 		if (!xAxisDistortion && focusTask && tasks && tasks.indexOf(focusTask) !== -1) {
 			var mid = (focusTask.startDate.getTime() + focusTask.endDate.getTime()) / 2;
 			var duration = Math.max(1, focusTask.endDate - focusTask.startDate);
-			// Make the focused task occupy ~66% of the chart width for readability.
-			var targetSpan = duration / 0.66;
+			// Keep the focused task readable (default 66%), but never below the
+			// width it had when expansion started.
+			var targetRatio = 0.66;
+			var focusMinWidth = getExpandFloor(focusTask.__expandMinWidth);
+			if (width > 0 && focusMinWidth > 0) {
+				targetRatio = Math.max(targetRatio, Math.min(1, focusMinWidth / width));
+			}
+			var targetSpan = duration / Math.max(0.0001, targetRatio);
 			timeDomainStart = new Date(mid - targetSpan / 2);
-			timeDomainEnd = new Date(mid + targetSpan / 2); 
+			timeDomainEnd = new Date(mid + targetSpan / 2);
 		}
     };
 
@@ -287,7 +985,7 @@ d3.gantt = function() {
 		// Calculate vertical layout for each row.
 		// We distribute the available height across rows, giving expanded
 		// rows extra space so their subcharts are usable.
-		// The result is stored in rowLayout for reuse by bars, icons, and axes. 
+		// The result is stored in rowLayout for reuse by bars, icons, and axes.
 		rowLayout = {};
 		var layoutTypes = visibleTaskTypes && visibleTaskTypes.length ? visibleTaskTypes : taskTypes;
 		var rows = layoutTypes.length || (tasks ? tasks.length : 0);
@@ -318,12 +1016,13 @@ d3.gantt = function() {
 		var collapsedH = collapsedCount > 0 ? remaining / collapsedCount :
 			(expandedCount > 0 ? expandedH : (rows > 0 ? usable / rows : 0));
 
-		// Enforce min height, then renormalize to keep total height constant.
-		// This prevents rows from becoming unusably thin while preserving total layout height.
+		// Enforce min height.
+		// If min heights already overflow available space, keep them as-is
+		// instead of shrinking below the configured minimum.
 		expandedH = Math.max(minRowHeight, expandedH);
 		collapsedH = Math.max(minRowHeight, collapsedH);
 		var totalH = expandedH * expandedCount + collapsedH * collapsedCount;
-		if (totalH > 0) {
+		if (totalH > 0 && totalH < usable) {
 			var scale = usable / totalH;
 			expandedH *= scale;
 			collapsedH *= scale;
@@ -352,39 +1051,12 @@ d3.gantt = function() {
 		if (!zoomState) {
 			yScale.domain([ 0, totalChartHeight ]).range([ 0, totalChartHeight ]);
 			renderRowLayout = rowLayout;
+			renderTaskTypes = taskTypes.slice();
 			return;
 		}
-		if (zoomState.startRow && zoomState.endRow) {
-			// When zoom is snapped to full rows, the rowLayout already reflects
-			// the visible set. We simply mirror it here to avoid double scaling.
-			yScale.domain([ 0, totalChartHeight ]).range([ 0, totalChartHeight ]);
-			renderRowLayout = rowLayout;
-			return;
-		}
-		var start;
-		var end;
-		if (zoomState.startRow && zoomState.endRow) {
-			var startRow = rowLayout[zoomState.startRow];
-			var endRow = rowLayout[zoomState.endRow];
-			if (startRow && endRow) {
-				start = startRow.y + startRow.height * (zoomState.startOffset || 0);
-				end = endRow.y + endRow.height * (zoomState.endOffset || 0);
-				if (start > end) {
-					var swap = start;
-					start = end;
-					end = swap;
-				}
-			}
-		}
-		if (typeof start !== "number" || typeof end !== "number") {
-			if (typeof zoomState.startRatio === "number" && typeof zoomState.endRatio === "number") {
-				start = totalChartHeight * zoomState.startRatio;
-				end = totalChartHeight * zoomState.endRatio;
-			} else {
-				start = Math.min(zoomState.start, zoomState.end);
-				end = Math.max(zoomState.start, zoomState.end);
-			}
-		}
+		var ratioRange = getCurrentYRatioRange();
+		var start = totalChartHeight * ratioRange.start;
+		var end = totalChartHeight * ratioRange.end;
 		var span = Math.max(1, end - start);
 		var scale = totalChartHeight / span;
 
@@ -392,6 +1064,7 @@ d3.gantt = function() {
 		// of the viewport during box zoom. We reuse the 66% cap that the
 		// base layout uses, but apply it after vertical scaling.
 		var maxExpandedHeight = 0;
+		var maxExpandedMinHeight = 0;
 		if (currentTasks && currentTasks.length) {
 			taskTypes.forEach(function(t) {
 				var row = rowLayout[t];
@@ -402,10 +1075,13 @@ d3.gantt = function() {
 				if (hasExpanded && row.height > maxExpandedHeight) {
 					maxExpandedHeight = row.height;
 				}
+				if (hasExpanded) {
+					maxExpandedMinHeight = Math.max(maxExpandedMinHeight, getExpandedMinHeightForTaskName(t));
+				}
 			});
 		}
 		if (maxExpandedHeight > 0) {
-			var maxAllowed = totalChartHeight * 0.66;
+			var maxAllowed = Math.max(totalChartHeight * 0.66, maxExpandedMinHeight);
 			var scaledMax = maxExpandedHeight * scale;
 			if (scaledMax > maxAllowed) {
 				scale = maxAllowed / maxExpandedHeight;
@@ -422,7 +1098,74 @@ d3.gantt = function() {
 				height: row.height * scale
 			};
 		});
+
+		if (expandVisibleLock && Array.isArray(expandVisibleLock.taskTypes) && expandVisibleLock.taskTypes.length) {
+			var expandedStillVisible = currentTasks.some(function(d) {
+				return d.taskName === expandVisibleLock.expandedTaskName && d.expanded;
+			});
+			if (!expandedStillVisible) {
+				expandVisibleLock = null;
+			}
+		}
+
+		if (expandVisibleLock && Array.isArray(expandVisibleLock.taskTypes) && expandVisibleLock.taskTypes.length) {
+			var lockedTypes = expandVisibleLock.taskTypes.filter(function(t) {
+				var row = rowLayout[t];
+				return !!row && row.height > 0;
+			});
+			if (lockedTypes.length) {
+				var expandedTaskName = expandVisibleLock.expandedTaskName;
+				if (lockedTypes.indexOf(expandedTaskName) === -1) {
+					expandedTaskName = lockedTypes[0];
+				}
+				var redistributed = {};
+				var expandedMinHeight = getExpandedMinHeightForTaskName(expandedTaskName);
+				var expandedHeightBase = lockedTypes.length > 1 ? (totalChartHeight * 0.66) : totalChartHeight;
+				var expandedHeight = Math.min(totalChartHeight, Math.max(expandedHeightBase, expandedMinHeight));
+				var otherCount = Math.max(0, lockedTypes.length - 1);
+				var otherHeight = otherCount > 0
+					? ((totalChartHeight - expandedHeight) / otherCount)
+					: 0;
+				var cursorY = 0;
+
+				lockedTypes.forEach(function(t) {
+					var h = t === expandedTaskName ? expandedHeight : otherHeight;
+					redistributed[t] = {
+						y: cursorY,
+						height: h
+					};
+					cursorY += h;
+				});
+
+				renderRowLayout = redistributed;
+				renderTaskTypes = lockedTypes.slice();
+				return;
+			}
+		}
+
 		renderRowLayout = layout;
+		renderTaskTypes = taskTypes.slice();
+	}
+
+	function captureVisibleRowsForExpand(expandedTaskName) {
+		if (!yZoomState || !expandedTaskName || !renderRowLayout) {
+			return null;
+		}
+		var visibleRows = taskTypes.filter(function(t) {
+			var row = renderRowLayout[t];
+			if (!row || row.height <= 0) return false;
+			return row.y < totalChartHeight && (row.y + row.height) > 0;
+		});
+		if (!visibleRows.length) {
+			return null;
+		}
+		if (visibleRows.indexOf(expandedTaskName) === -1) {
+			visibleRows.push(expandedTaskName);
+		}
+		return {
+			taskTypes: visibleRows,
+			expandedTaskName: expandedTaskName
+		};
 	}
 
 	// ---------------------------------------------------------------------------
@@ -436,6 +1179,9 @@ d3.gantt = function() {
 		// Recursively collapse a task and its descendants.
 		// This keeps the UI consistent when the time domain or focus changes.
 		task.expanded = false;
+		task.__expanding = false;
+		delete task.__expandMinWidth;
+		delete task.__expandMinHeight;
 		if (task.subtasks && task.subtasks.length) {
 			task.subtasks.forEach(collapseAll);
 		}
@@ -484,16 +1230,17 @@ d3.gantt = function() {
 		return current || task;
 	}
 
-	function getAllStatus(){
-		return taskStatus;
-	}
-
 	// Wire up modal helper now that core helpers exist.
 	// The modal stays outside the SVG so layout is handled by normal DOM flow.
 	modal = createInfoModal({
 		d3: d3,
 		getBaseTask: getBaseTask,
-		getAllStatus: getAllStatus
+		getPopupCatalog: function() {
+			return popupCatalog;
+		},
+		getCurrentUser: function() {
+			return currentUserInfo;
+		}
 	});
 
 	// Collapse all tasks in the given list except the target (operates within one chart level).
@@ -506,6 +1253,35 @@ d3.gantt = function() {
 			if (t === target) return;
 			collapseAll(t);
 		});
+	}
+
+	function hasExpandableSubtasks(task) {
+		return !!(task && task.subtasks && task.subtasks.length);
+	}
+
+	function toggleTaskExpanded(task) {
+		if (!task || !hasExpandableSubtasks(task)) {
+			return;
+		}
+		var expanding = !task.expanded;
+		if (expanding) {
+			captureTaskExpandFloors(task);
+		}
+		expandVisibleLock = expanding
+			? captureVisibleRowsForExpand(task && task.taskName ? task.taskName : "")
+			: null;
+		if (expanding) {
+			task.__expanding = true;
+			collapseOthers(currentTasks, task);
+			focusTask = task;
+		} else {
+			focusTask = null;
+			task.__expanding = false;
+			delete task.__expandMinWidth;
+			delete task.__expandMinHeight;
+		}
+		task.expanded = expanding;
+		gantt.redraw(currentTasks);
 	}
 
 	// Keep focusTask aligned to the currently expanded row.
@@ -553,38 +1329,199 @@ d3.gantt = function() {
 
 		ganttChartGroup = rootSvg.select("g.gantt-chart");
 
+		var dateBadgeJoin = rootSvg.selectAll("g.gantt-date-badge")
+			.data(dateBadgeEnabled ? [ null ] : []);
+		dateBadgeJoin.exit().remove();
+		dateBadgeJoin.enter()
+			.append("g")
+			.attr("class", "gantt-date-badge")
+			.attr("aria-hidden", "true")
+			.style("pointer-events", "none");
+		dateBadgeGroup = rootSvg.select("g.gantt-date-badge");
+
+		if (dateBadgeEnabled && dateBadgeGroup && !dateBadgeGroup.empty()) {
+			var badgeBgJoin = dateBadgeGroup.selectAll("rect.gantt-date-badge-bg").data([ null ]);
+			badgeBgJoin.enter().append("rect").attr("class", "gantt-date-badge-bg");
+			var badgeTextJoin = dateBadgeGroup.selectAll("text.gantt-date-badge-text").data([ null ]);
+			badgeTextJoin.enter().append("text").attr("class", "gantt-date-badge-text");
+		}
+
+		var defsJoin = rootSvg.selectAll("defs.gantt-defs")
+			.data([ null ]);
+		defsJoin.enter()
+			.append("defs")
+			.attr("class", "gantt-defs");
+		var defs = rootSvg.select("defs.gantt-defs");
+		ensureBarPatterns(defs);
+
+		var clipJoin = defs.selectAll("clipPath.gantt-links-clip")
+			.data([ null ]);
+		clipJoin.enter()
+			.append("clipPath")
+			.attr("class", "gantt-links-clip")
+			.attr("id", linksClipId);
+
+		var clipRectJoin = defs.select("clipPath.gantt-links-clip")
+			.selectAll("rect")
+			.data([ null ]);
+		clipRectJoin.enter().append("rect");
+		linksClipRect = defs.select("clipPath.gantt-links-clip").select("rect");
+
 		axisManager.ensureAxisGroups(ganttChartGroup);
+
+		var expandedLabelsJoin = ganttChartGroup.selectAll("g.expanded-y-dialog-labels")
+			.data([ null ]);
+		expandedLabelsJoin.enter()
+			.append("g")
+			.attr("class", "expanded-y-dialog-labels")
+			.attr("aria-hidden", "true")
+			.style("pointer-events", "none");
+		expandedYLabelsGroup = ganttChartGroup.select("g.expanded-y-dialog-labels");
+
+		var legendJoin = rootSvg.selectAll("g.gantt-scene-legend")
+			.data([ null ]);
+		legendJoin.enter()
+			.append("g")
+			.attr("class", "gantt-scene-legend");
+		sceneLegendGroup = rootSvg.select("g.gantt-scene-legend");
 
 		rootSvg
 			.attr("width", width + margin.left + margin.right)
-			.attr("height", getChartHeight() + 5);
+			.attr("height", getChartHeight());
 
 		ganttChartGroup
 			.attr("transform", "translate(" + margin.left + ", " + margin.top + ")");
+
+		if (linksClipRect) {
+			linksClipRect
+				.attr("x", 0)
+				.attr("y", 0)
+				.attr("width", width)
+				.attr("height", totalChartHeight);
+		}
+	}
+
+	function updateDateBadge() {
+		if (!dateBadgeGroup || dateBadgeGroup.empty()) {
+			return;
+		}
+		var dateValue = timeDomainStart instanceof Date ? timeDomainStart : new Date(timeDomainStart);
+		var dateFormat = d3.time.format("%d/%m/%Y");
+		var label = dateValue && isFinite(dateValue.getTime()) ? dateFormat(dateValue) : "---";
+		var paddingX = 10;
+		var badgeHeight = 20;
+		var badgeWidth = 90;
+
+		dateBadgeGroup.attr("transform", "translate(0,0)");
+
+		dateBadgeGroup.select("text.gantt-date-badge-text")
+			.text(label)
+			.attr("x", paddingX)
+			.attr("y", 12)
+			.attr("dominant-baseline", "middle");
+
+		dateBadgeGroup.select("rect.gantt-date-badge-bg")
+			.attr("x", 0)
+			.attr("y", 0)
+			.attr("rx", 8)
+			.attr("ry", 8)
+			.attr("width", badgeWidth)
+			.attr("height", badgeHeight);
+	}
+
+	function getCurrentXAxisTicks() {
+		if (!xScale || typeof xScale.ticks !== "function") {
+			return null;
+		}
+		try {
+			var ticks = xScale.ticks();
+			return Array.isArray(ticks) && ticks.length ? ticks : null;
+		} catch (err) {
+			return null;
+		}
+	}
+
+	function formatAriaTime(value) {
+		if (!value) return "";
+		try {
+			return d3.time.format(tickFormat)(value instanceof Date ? value : new Date(value));
+		} catch (err) {
+			return "";
+		}
+	}
+
+	function formatAriaDuration(milliseconds) {
+		var totalSeconds = Math.max(0, Math.round((milliseconds || 0) / 1000));
+		var hours = Math.floor(totalSeconds / 3600);
+		var minutes = Math.floor((totalSeconds % 3600) / 60);
+		var seconds = totalSeconds % 60;
+		var parts = [];
+		if (hours) {
+			parts.push(hours + (hours === 1 ? " hora" : " horas"));
+		}
+		if (minutes) {
+			parts.push(minutes + (minutes === 1 ? " minuto" : " minutos"));
+		}
+		if (!parts.length || seconds) {
+			parts.push(seconds + (seconds === 1 ? " segundo" : " segundos"));
+		}
+		return parts.join(" e ");
+	}
+
+	function getTaskAriaLabel(task) {
+		var taskName = task && task.taskName ? String(task.taskName) : "atividade";
+		var start = formatAriaTime(task && task.startDate);
+		var duration = (task && task.startDate && task.endDate)
+			? formatAriaDuration(task.endDate - task.startDate)
+			: "";
+		var parts = [ taskName ];
+		if (start) {
+			parts.push("início " + start);
+		}
+		if (duration) {
+			parts.push("duração " + duration);
+		}
+		return parts.join(", ");
 	}
 
 	function enterBars(selection) {
 		// Configure bar rectangles when they are first created.
 		// We only set attributes that do not depend on size/position here,
 		// so the update phase can handle geometry independently.
+		var expansionDescriptionId = ensureExpansionToggleDescription(document);
 		selection
 			.attr("class", function(d) { return d.barClass || getBarClass(d.task || d); })
 			.style("fill", function(d) { return getBarFill(d.task || d); })
+			.style("opacity", function(d) { return getBarOpacity(d.task || d); })
+			.style("stroke", function(d) { return getBarStroke(d.task || d); })
+			.style("stroke-width", function(d) { return getBarStrokeWidth(d.task || d); })
 			.attr("data-task-key", function(d) { return d.key || ""; })
-			.on("click", function(d) {
+			.attr("role", "button")
+			.attr("focusable", "true")
+			.attr("aria-describedby", expansionDescriptionId)
+			.attr("aria-label", function(d) {
 				var task = d.task || d;
-				var expanding = !task.expanded;
-				if (expanding) {
-					task.__expanding = true;
-					collapseOthers(currentTasks, task);
-					focusTask = task;
-				} else {
-					focusTask = null;
-					task.__expanding = false;
-				}
-				task.expanded = expanding;
-				gantt.redraw(currentTasks);
+				return getTaskAriaLabel(task);
 			})
+				.on("click", function(d) {
+					var task = d.task || d;
+					toggleTaskExpanded(task);
+				})
+			.on("keydown", function(d) {
+				var evt = d3.event;
+				var key = evt && (evt.key || evt.keyCode);
+				var isEnter = key === "Enter" || key === 13;
+				var isSpace = key === " " || key === "Spacebar" || key === 32;
+				if (!isEnter && !isSpace) {
+					return;
+				}
+				if (evt) {
+					evt.preventDefault();
+					evt.stopPropagation();
+					}
+					var task = d.task || d;
+					toggleTaskExpanded(task);
+				})
 			.on("dblclick", function() {
 				// Prevent zoom behavior from catching double-clicks on tasks.
 				d3.event.stopPropagation();
@@ -595,42 +1532,146 @@ d3.gantt = function() {
 		// Update the geometry and visibility of bars on every redraw.
 		// This is separate from enterBars so transitions can animate
 		// width/height and visibility changes smoothly.
+		var expansionDescriptionId = ensureExpansionToggleDescription(document);
 		selection
+			.attr("class", function(d) { return d.barClass || getBarClass(d.task || d); })
+			.style("fill", function(d) { return getBarFill(d.task || d); })
+			.style("opacity", function(d) { return getBarOpacity(d.task || d); })
+			.style("stroke", function(d) { return getBarStroke(d.task || d); })
+			.style("stroke-width", function(d) { return getBarStrokeWidth(d.task || d); })
 			.attr("expanded", function(d) { return d.expanded; })
-			.attr("x", 0)
-			.attr("y", 0)
-			.attr("height", function(d) { return d.height; })
-			.attr("width", function(d) { return d.width; })
+			.attr("role", "button")
+			.attr("focusable", "true")
+			.attr("aria-describedby", expansionDescriptionId)
+			.attr("aria-label", function(d) {
+				var task = d.task || d;
+				return getTaskAriaLabel(task);
+			})
+			.attr("tabindex", function(d) { return d.visible ? 0 : -1; })
 			.attr("visibility", function(d) { return d.visible ? "visible" : "hidden"; });
+	}
+
+	function bringExpandedYLabelsToFront() {
+		if (!expandedYLabelsGroup || expandedYLabelsGroup.empty()) return;
+		var node = expandedYLabelsGroup.node();
+		if (node && node.parentNode) {
+			node.parentNode.appendChild(node);
+		}
+	}
+
+	function clearExpandedYDialogLabels() {
+		if (ganttChartGroup) {
+			ganttChartGroup.selectAll("g.expanded-y-dialog-labels").remove();
+		}
+		expandedYLabelsGroup = null;
+	}
+
+	function ensureExpandedYDialogLabelsGroup() {
+		if (!ganttChartGroup) return null;
+		var join = ganttChartGroup.selectAll("g.expanded-y-dialog-labels")
+			.data([ null ]);
+		join.enter()
+			.append("g")
+			.attr("class", "expanded-y-dialog-labels")
+			.attr("aria-hidden", "true")
+			.style("pointer-events", "none");
+		expandedYLabelsGroup = ganttChartGroup.select("g.expanded-y-dialog-labels");
+		return expandedYLabelsGroup;
+	}
+
+	function updateExpandedYDialogLabels() {
+		if (!ganttChartGroup) return;
+		var expandedTask = getExpandedTask();
+		var hasExpandedRow = expandedTask &&
+			expandedTask.taskName &&
+			renderTaskTypes.indexOf(expandedTask.taskName) !== -1 &&
+			renderRowLayout[expandedTask.taskName];
+		var dialogItems = hasExpandedRow ? getDialogLabelItems(expandedTask) : [];
+		var row = hasExpandedRow ? renderRowLayout[expandedTask.taskName] : null;
+
+		ganttChartGroup.selectAll(".y.axis .tick text")
+			.style("display", function(d) {
+				if (!hasExpandedRow) return null;
+				return String(d) === String(expandedTask.taskName) ? "none" : null;
+			});
+
+		if (!axisLabelsEnabled || !row || !dialogItems.length) {
+			clearExpandedYDialogLabels();
+			return;
+		}
+
+		var labelsGroup = ensureExpandedYDialogLabelsGroup();
+		if (!labelsGroup || labelsGroup.empty()) return;
+
+		var topPad = Math.min(14, Math.max(4, row.height * 0.12));
+		var availableHeight = Math.max(1, row.height - (topPad * 2));
+		var count = dialogItems.length;
+		dialogItems.forEach(function(item, index) {
+			item.x = -10;
+			item.y = row.y + topPad + ((index + 0.5) * (availableHeight / count));
+		});
+
+		var labels = expandedYLabelsGroup.selectAll("text.expanded-y-dialog-label")
+			.data(dialogItems, function(d) { return d.key; });
+
+		labels.exit().remove();
+
+		labels.enter()
+			.append("text")
+			.attr("class", "expanded-y-dialog-label")
+			.attr("text-anchor", "end")
+			.attr("dominant-baseline", "middle")
+			.text(function(d) { return d.label; });
+
+		var allLabels = expandedYLabelsGroup.selectAll("text.expanded-y-dialog-label");
+		allLabels
+			.attr("x", function(d) { return d.x; })
+			.attr("y", function(d) { return d.y; })
+			.text(function(d) { return d.label; });
+
+		bringExpandedYLabelsToFront();
 	}
 
 	function prepareRenderData(tasks) {
 		// Convert raw task data into render-ready bar objects.
 		// This precomputes x/y/width/height, visibility, and subchart layout
 		// so the render layer only reads values (no heavy computation).
-		var barData = []; 
+		var barData = [];
 		tasks.forEach(function(task) {
 			var row = renderRowLayout[task.taskName];
-			var xStart = xScale(task.startDate);
-			var xEnd = xScale(task.endDate); 
-
+			var rawXStart = xScale(task.startDate);
+			var rawXEnd = xScale(task.endDate);
+			// Keep rendered bars inside plot bounds even when xScale is unclamped
+			// for wheel zoom-out behavior.
+			var xStart = Math.max(0, Math.min(width, rawXStart));
+			var xEnd = Math.max(0, Math.min(width, rawXEnd));
 			var widthValue = Math.max(0, xEnd - xStart);
-			var heightValue = row ? row.height : 0;
+			// Keep rendered bars inside vertical plot bounds to mirror x clamping.
+			var rawYStart = row ? row.y : 0;
+			var rawYEnd = rawYStart + (row ? row.height : 0);
+			var yStart = Math.max(0, Math.min(totalChartHeight, rawYStart));
+			var yEnd = Math.max(0, Math.min(totalChartHeight, rawYEnd));
+			var heightValue = Math.max(0, yEnd - yStart);
+			var appliedBarInset = Math.min(
+				Math.max(0, rowBarInset),
+				Math.max(0, (heightValue / 2) - 1)
+			);
+			var barY = yStart + appliedBarInset;
+			var barHeight = Math.max(0, heightValue - (appliedBarInset * 2));
+
 			var visible = !!row &&
-				heightValue > 0 &&
-				xEnd > 0 &&
-				xStart < width &&
-				widthValue > 0 &&
-				(row.y + heightValue) > 0 &&
-				row.y < totalChartHeight;
+				barHeight > 0 &&
+				rawXEnd > 0 &&
+				rawXStart < width &&
+				widthValue > 0;
 
 			var bar = {
 				key: ensureTaskId(task),
 				task: task,
 				x: xStart,
-				y: row ? row.y : 0,
+				y: barY,
 				width: widthValue,
-				height: heightValue,
+				height: barHeight,
 				visible: visible,
 				expanded: task.expanded,
 				barClass: getBarClass(task),
@@ -640,7 +1681,9 @@ d3.gantt = function() {
 			if (task.expanded && task.subtasks && task.subtasks.length && visible) {
 				var containerW = widthValue - 10;
 				var containerH = Math.max(0, heightValue - 10);
-				var subMargin = { top: 5, right: 20, bottom: 20, left: 60 };
+				var subMargin = subchartAxisLabelsEnabled
+					? { top: 5, right: 20, bottom: 20, left: 60 }
+					: { top: 0, right: 0, bottom: 0, left: 0 };
 				var innerW = Math.max(0, containerW - subMargin.left - subMargin.right);
 				var innerH = Math.max(0, containerH - subMargin.top - subMargin.bottom);
 
@@ -692,13 +1735,14 @@ d3.gantt = function() {
 	function updateTaskGroups(svg, barData, maybeTransition) {
 		// Main D3 join for task groups (one <g> per task).
 		// Each group owns the bar rect, info icon, and optional subchart.
-		// We insert groups before the x-axis so axes remain on top.
-		var axisRefNode = svg.select("g.x.axis").node();
 		var groups = svg.selectAll("g.task-group").data(barData, function(d) { return d.key; });
 		groups.exit().remove();
 
 		var groupsEnter = groups.enter()
-			.insert("g", function() { return axisRefNode; })
+			.insert("g", function() {
+				var axisRefNode = svg.select("g.x.axis").node();
+				return axisRefNode || null;
+			})
 			.attr("class", "task-group");
 
 		groupsEnter.attr("transform", rectTransform);
@@ -715,7 +1759,14 @@ d3.gantt = function() {
 
 		enterBars(groupsEnter.select("rect.task-bar"));
 		var bars = allGroups.select("rect.task-bar");
-		maybeTransition(bars).call(updateBars);
+		// Apply focus/tab attributes immediately (not via transition),
+		// then animate geometry updates.
+		bars.call(updateBars);
+		maybeTransition(bars)
+			.attr("x", 0)
+			.attr("y", 0)
+			.attr("height", function(d) { return d.height; })
+			.attr("width", function(d) { return d.width; });
 
 		updateTaskIcons(groupsEnter, allGroups, maybeTransition);
 
@@ -726,46 +1777,33 @@ d3.gantt = function() {
 	// Icon rendering + tooltip behavior
 	// ---------------------------------------------------------------------------
 	function updateTaskIcons(groupsEnter, allGroups, maybeTransition) {
-		// Create and update the info "i" icons for each task group.
-		// We position them relative to the bar width, and hide them
-		// when the bar is too narrow to avoid overlap.
-		var iconEnter = groupsEnter.append("g")
-			.attr("class", "task-info-icon")
-			.on("click", function(d) {
-				d3.event.stopPropagation();
-				modal.showInfoTooltip(d.task || d);
-			})
-			.on("mouseenter", function() {
-				showIconTooltip("Exibir Detalhes");
-			})
-			.on("mousemove", function() {
-				moveIconTooltip();
-			})
-			.on("mouseleave", function() {
-				hideIconTooltip();
-			});
-
-		iconEnter.append("circle")
-			.attr("class", "task-info-icon-circle")
-			.attr("r", 10);
-
-		iconEnter.append("text")
-			.attr("class", "task-info-icon-text")
-			.text("i")
-			.attr("dy", "0.35em");
-
-		var icons = allGroups.select("g.task-info-icon");
+		// Create and update two action icons for each bar:
+		// - "i" opens the popup
+		// - "+" expands to the detailed (subchart) view
 		var iconSize = 16;
 		var iconPadding = 4;
+		var iconHitSize = 20;
 
-		function iconTransform(d) {
+		function getTask(d) {
+			return d && d.task ? d.task : d;
+		}
+
+		function infoTransform(d) {
 			var w = d.width;
 			var xPos = w - (iconSize / 2) - iconPadding;
 			var yPos = (iconSize / 2) + iconPadding;
 			return "translate(" + xPos + "," + yPos + ")";
 		}
 
-		function iconVisible(d) {
+		function expandTransform(d) {
+			var w = d.width;
+			var h = d.height;
+			var xPos = w - (iconSize / 2) - iconPadding;
+			var yPos = h - (iconSize / 2) - iconPadding;
+			return "translate(" + xPos + "," + yPos + ")";
+		}
+
+		function infoVisible(d) {
 			if (!d.visible) return false;
 			var w = d.width;
 			var h = d.height;
@@ -774,335 +1812,209 @@ d3.gantt = function() {
 			return w > minWSize && h > minHSize;
 		}
 
-		iconEnter
-			.attr("transform", iconTransform)
-			.attr("display", function(d) { return iconVisible(d) ? null : "none"; })
-			.style("pointer-events", function(d) { return iconVisible(d) ? "all" : "none"; });
+		function expandVisible(d) {
+			if (!infoVisible(d)) return false;
+			var task = getTask(d);
+			if (!hasExpandableSubtasks(task)) return false;
+			if (task && task.expanded) return false;
+			var h = d.height;
+			var minHForTwoIcons = (iconSize * 2) + (iconPadding * 3);
+			return h > minHForTwoIcons;
+		}
 
-		maybeTransition(icons)
-			.attr("transform", iconTransform)
-			.attr("display", function(d) { return iconVisible(d) ? null : "none"; })
-			.style("pointer-events", function(d) { return iconVisible(d) ? "all" : "none"; });
-	}
+		var infoEnter = groupsEnter.append("g")
+			.attr("class", "task-info-icon")
+			.attr("role", "button")
+			.attr("focusable", "true")
+			.attr("aria-label", function(d) {
+				var task = getTask(d);
+				var taskName = task && task.taskName ? String(task.taskName) : "atividade";
+				return "Exibir detalhes de " + taskName;
+			})
+			.on("click", function(d) {
+				d3.event.stopPropagation();
+				modal.showInfoTooltip(getTask(d));
+			})
+			.on("keydown", function(d) {
+				var evt = d3.event;
+				var key = evt && (evt.key || evt.keyCode);
+				var isEnter = key === "Enter" || key === 13;
+				var isSpace = key === " " || key === "Spacebar" || key === 32;
+				if (!isEnter && !isSpace) return;
+				if (evt) {
+					evt.preventDefault();
+					evt.stopPropagation();
+				}
+				modal.showInfoTooltip(getTask(d));
+			})
+			.on("mouseenter", function() {
+				iconTooltipManager.show("Exibir detalhes");
+			})
+			.on("mousemove", function() {
+				iconTooltipManager.move();
+			})
+			.on("mouseleave", function() {
+				iconTooltipManager.hide();
+			});
 
-	function ensureIconTooltip() {
-		var tooltipJoin = d3.select("body")
-			.selectAll(".task-info-tooltip")
-			.data([ null ]);
+		infoEnter.append("circle")
+			.attr("class", "task-info-icon-circle")
+			.attr("r", 10);
 
-		tooltipJoin.enter()
-			.append("div")
-			.attr("class", "task-info-tooltip")
-			.style("position", "absolute")
-			.style("display", "none")
-			.style("pointer-events", "none");
+		infoEnter.append("text")
+			.attr("class", "task-info-icon-text")
+			.text("i")
+			.attr("dy", "0.35em");
 
-		iconTooltip = d3.select("body").select(".task-info-tooltip");
-		return iconTooltip;
-	}
+		var expandEnter = groupsEnter.append("g")
+			.attr("class", "task-expand-icon")
+			.attr("aria-hidden", "true")
+			.attr("focusable", "false")
+			.attr("tabindex", -1)
+			.on("click", function(d) {
+				d3.event.stopPropagation();
+				toggleTaskExpanded(getTask(d));
+			})
+			.on("keydown", function(d) {
+				var evt = d3.event;
+				var key = evt && (evt.key || evt.keyCode);
+				var isEnter = key === "Enter" || key === 13;
+				var isSpace = key === " " || key === "Spacebar" || key === 32;
+				if (!isEnter && !isSpace) return;
+				if (evt) {
+					evt.preventDefault();
+					evt.stopPropagation();
+				}
+				toggleTaskExpanded(getTask(d));
+			})
+			.on("mouseenter", function(d) {
+				if (!expandVisible(d)) return;
+				iconTooltipManager.show("Expandir visão detalhada");
+			})
+			.on("mousemove", function() {
+				iconTooltipManager.move();
+			})
+			.on("mouseleave", function() {
+				iconTooltipManager.hide();
+			});
 
-	function showIconTooltip(text) {
-		var tooltip = ensureIconTooltip();
-		tooltip.text(text || "")
-			.style("display", "block");
-		moveIconTooltip();
-	}
+		expandEnter.append("rect")
+			.attr("class", "task-expand-icon-hit")
+			.attr("x", -(iconHitSize / 2))
+			.attr("y", -(iconHitSize / 2))
+			.attr("width", iconHitSize)
+			.attr("height", iconHitSize);
 
-	function moveIconTooltip() {
-		if (!iconTooltip || iconTooltip.empty() || !d3.event) return;
-		var offset = 12;
-		iconTooltip
-			.style("left", (d3.event.pageX + offset) + "px")
-			.style("top", (d3.event.pageY + offset) + "px");
-	}
+		expandEnter.append("text")
+			.attr("class", "task-expand-icon-text")
+			.attr("dy", "0.35em")
+			.text("+");
 
-	function hideIconTooltip() {
-		if (!iconTooltip || iconTooltip.empty()) return;
-		iconTooltip.style("display", "none");
+		var infoIcons = allGroups.select("g.task-info-icon");
+		var expandIcons = allGroups.select("g.task-expand-icon");
+
+		infoEnter.attr("transform", infoTransform);
+		expandEnter.attr("transform", expandTransform);
+
+		infoIcons
+			.attr("role", "button")
+			.attr("focusable", "true")
+			.attr("aria-label", function(d) {
+				var task = getTask(d);
+				var taskName = task && task.taskName ? String(task.taskName) : "atividade";
+				return "Exibir detalhes de " + taskName;
+			})
+			.attr("display", function(d) { return infoVisible(d) ? null : "none"; })
+			.attr("tabindex", function(d) { return infoVisible(d) ? 0 : -1; })
+			.style("pointer-events", function(d) { return infoVisible(d) ? "all" : "none"; });
+
+		expandIcons
+			.attr("role", null)
+			.attr("aria-label", null)
+			.attr("aria-hidden", "true")
+			.attr("focusable", "false")
+			.attr("display", function(d) { return expandVisible(d) ? null : "none"; })
+			.attr("tabindex", -1)
+			.style("pointer-events", function(d) { return expandVisible(d) ? "all" : "none"; });
+
+		maybeTransition(infoIcons)
+			.attr("transform", infoTransform);
+
+		maybeTransition(expandIcons)
+			.attr("transform", expandTransform);
 	}
 
 	// ---------------------------------------------------------------------------
 	// Zoom behavior (wheel zoom + box zoom)
 	// ---------------------------------------------------------------------------
-	
+
+	function getCurrentYRatioRange() {
+		return getCurrentYRatioRangeFromState(yZoomState);
+	}
+
 	function applyZoomHandlers() {
 		// Keep wheel zoom and box zoom wired to the current SVG + scales.
-		applyZoomBehavior();
-		applyRectZoom();
+		zoomManager.applyHandlers({
+			svg: rootSvg,
+			chartGroup: ganttChartGroup,
+			xScale: xScale,
+			yBrushScale: yBrushScale,
+			innerWidth: width,
+			innerHeight: totalChartHeight,
+			fallbackDomain: [ timeDomainStart, timeDomainEnd ],
+			boundsDomain: xZoomBoundsDomain,
+			redraw: function(meta) {
+				iconTooltipManager.hide();
+				if (meta && meta.source) {
+					expandVisibleLock = null;
+				}
+				gantt.redraw(currentTasks, meta);
+			}
+		});
 	}
 
 	function getVisibleTaskTypes() {
-		var zoomState = yZoomState;
-		if (zoomState && zoomState.startRow && zoomState.endRow) {
-			var startIndex = taskTypes.indexOf(zoomState.startRow);
-			var endIndex = taskTypes.indexOf(zoomState.endRow);
-			if (startIndex === -1 || endIndex === -1) {
-				return taskTypes;
-			}
-			if (startIndex > endIndex) {
-				var swap = startIndex;
-				startIndex = endIndex;
-				endIndex = swap;
-			}
-			return taskTypes.slice(startIndex, endIndex + 1);
-		}
 		return taskTypes;
 	}
 
-	function applyZoomBehavior() {
-		// Wheel/drag zoom only affects the x domain (time).
-		if (!zoomEnabled || !rootSvg) return;
-		if (!zoomBehavior) {
-			zoomBehavior = d3.behavior.zoom()
-				.x(xScale)
-				.on("zoom", handleZoom);
-		} else {
-			zoomBehavior.x(xScale);
-		}
-		rootSvg.call(zoomBehavior);
-	}
-
-	function handleZoom() {
-		// Apply the new x domain without recomputing row layout.
-		if (!ganttChartGroup) return;
-		applyZoomDomain(xScale.domain(), { recomputeLayout: false });
-	}
-
-	function applyRectZoom() {
-		// Create/update the brush overlay used for box zoom.
-		if (!ganttChartGroup) return;
-		if (!rectZoomEnabled) {
-			if (brushGroup) {
-				brushGroup.style("display", "none");
-			}
-			return;
-		}
-
-		var brushJoin = ganttChartGroup.selectAll("g.zoom-brush").data([ null ]);
-		brushJoin.enter()
-			.append("g")
-			.attr("class", "zoom-brush");
-		brushGroup = ganttChartGroup.select("g.zoom-brush");
-		brushGroup.style("display", null);
-
-		if (!zoomBrush) {
-			zoomBrush = d3.svg.brush()
-				.on("brushend", handleRectZoomEnd);
-		}
-
-		yBrushScale.domain([ 0, totalChartHeight ]).range([ 0, totalChartHeight ]);
-		zoomBrush.x(xScale).y(yBrushScale);
-		brushGroup.call(zoomBrush);
-	}
-
-	function handleRectZoomEnd() {
-		// Convert the brush rectangle into x domain + row range.
-		if (!zoomBrush || !brushGroup || zoomBrush.empty()) return;
-		var extent = zoomBrush.extent();
-		var x0 = extent[0][0];
-		var x1 = extent[1][0];
-		var y0 = extent[0][1];
-		var y1 = extent[1][1];
-		if (x0 === x1 || y0 === y1) {
-			zoomBrush.clear();
-			brushGroup.call(zoomBrush);
-			return;
-		}
-		var start;
-		var end;
-		if (x0 instanceof Date || x1 instanceof Date) {
-			start = x0 instanceof Date ? x0 : x1;
-			end = x1 instanceof Date ? x1 : x0;
-			if (start > end) {
-				var swap = start;
-				start = end;
-				end = swap;
-			}
-		} else {
-			start = xScale.invert(Math.min(x0, x1));
-			end = xScale.invert(Math.max(x0, x1));
-		}
-		if (!start || !end || +start === +end) {
-			zoomBrush.clear();
-			brushGroup.call(zoomBrush);
-			return;
-		}
-		var yStart = Math.min(y0, y1);
-		var yEnd = Math.max(y0, y1);
-		var baseStart = yScale.invert(yStart);
-		var baseEnd = yScale.invert(yEnd);
-		if (baseStart > baseEnd) {
-			var tmp = baseStart;
-			baseStart = baseEnd;
-			baseEnd = tmp;
-		}
-
-		var startRow = null;
-		var endRow = null;
-		for (var i = 0; i < taskTypes.length; i++) {
-			var name = taskTypes[i];
-			var row = rowLayout[name];
-			if (!row) continue;
-			if (!startRow && baseStart <= (row.y + row.height)) {
-				startRow = name;
-			}
-			if (baseEnd <= (row.y + row.height)) {
-				endRow = name;
-				break;
-			}
-		}
-		if (!startRow && taskTypes.length) {
-			startRow = taskTypes[0];
-		}
-		if (!endRow && taskTypes.length) {
-			endRow = taskTypes[taskTypes.length - 1];
-		}
-		if (startRow && endRow) {
-			yZoomState = {
-				startRow: startRow,
-				startOffset: 0,
-				endRow: endRow,
-				endOffset: 1
-			};
-		} else {
-			var normStart = totalChartHeight > 0 ? (yStart / totalChartHeight) : 0;
-			var normEnd = totalChartHeight > 0 ? (yEnd / totalChartHeight) : 1;
-			yZoomState = {
-				startRatio: Math.max(0, Math.min(1, normStart)),
-				endRatio: Math.max(0, Math.min(1, normEnd))
-			};
-		}
-
-		applyZoomDomain([ start, end ], { recomputeLayout: true });
-
-		zoomBrush.clear();
-		brushGroup.call(zoomBrush);
-
-		if (rectZoomEnabled) {
-			rectZoomEnabled = false;
-			applyRectZoom();
-			var event;
-			if (typeof CustomEvent === "function") {
-				event = new CustomEvent("rectzoom:complete");
-			} else {
-				event = document.createEvent("Event");
-				event.initEvent("rectzoom:complete", true, true);
-			}
-			document.dispatchEvent(event);
-		}
-	}
-
-
-	function applyZoomDomain(domain, options) {
-		// Apply the x domain and optionally recompute row layout for y-zoom.
-		if (!domain || domain.length !== 2) return;
-		var start = domain[0];
-		var end = domain[1];
-		if (!start || !end || +start === +end) return;
-		if (start > end) {
-			var swap = start;
-			start = end;
-			end = swap;
-		}
-		timeDomainStart = start;
-		timeDomainEnd = end;
-		xZoomDomain = [ start, end ];
-		xScale.domain([ start, end ]);
-		if (zoomBehavior) {
-			zoomBehavior.x(xScale);
-		}
-
-		var recomputeLayout = options && options.recomputeLayout;
-		if (recomputeLayout) {
-			computeRowLayout(currentTasks, getVisibleTaskTypes());
-			updateRenderRowLayout();
-		}
-		axisManager.setTickFormat(tickFormat);
-		axisManager.updateScales({
-			xScale: xScale,
-			taskTypes: getVisibleTaskTypes(),
-			rowLayout: renderRowLayout
-		});
-		axisManager.updateAxes(totalChartHeight, function(selection) { return selection; });
-
-		var prepared = prepareRenderData(currentTasks);
-		var groups = updateTaskGroups(ganttChartGroup, prepared.bars, function(selection) { return selection; });
-		var linksGroup = linkManager.ensureLinksLayer(ganttChartGroup);
-		linkManager.updateLinks({
-			linksGroup: linksGroup,
-			tasks: currentTasks,
-			x: xScale,
-			rowLayout: renderRowLayout,
-			chartLines: chartLines,
-			maybeTransition: function(selection) { return selection; },
-			hadSvg: true
-		});
-		linkManager.bringLinksToFront();
-
-		updateSubGantts({
-			d3: d3,
-			groups: groups,
-			maybeTransition: function(selection) { return selection; },
-			annotateParents: annotateParents,
-			subKey: subKey,
-			isSubtaskClickTarget: isSubtaskClickTarget,
-			collapseAll: collapseAll,
-			clearFocus: function() { focusTask = null; },
-			gantt: gantt,
-			currentTasks: currentTasks,
-			taskStatus: taskStatus,
-			hideUnvisitedRows: hideUnvisitedRows,
-			xAxisDistortion: xAxisDistortion,
-			subchartLines: subchartLines,
-			transitionDuration: 0
-		});
-	}
-
-	function zoomByFactor(factor) {
-		// Button zoom: scale the current time window around its midpoint.
-		if (!xScale || !factor) return;
-		var domain = xScale.domain();
-		if (!domain || domain.length !== 2) return;
-		var startMs = +domain[0];
-		var endMs = +domain[1];
-		if (!isFinite(startMs) || !isFinite(endMs) || startMs === endMs) return;
-		var mid = (startMs + endMs) / 2;
-		var span = (endMs - startMs) / factor;
-		if (!isFinite(span) || span <= 0) return;
-		var nextStart = new Date(mid - span / 2);
-		var nextEnd = new Date(mid + span / 2);
-		applyZoomDomain([ nextStart, nextEnd ], { recomputeLayout: false });
-	}
-
 	function resetZoomDomain() {
-		// Clear zoom state and return to the full time domain.
-		xZoomDomain = null;
-		yZoomState = null;
-		if (zoomBrush && brushGroup) {
-			zoomBrush.clear();
-			brushGroup.call(zoomBrush);
+		expandVisibleLock = null;
+		zoomManager.resetZoom();
+	}
+
+	function clearInteractionStateForDatasetChange() {
+		// Loading a new dataset while a row is expanded can leave stale subchart/
+		// focus/zoom UI state around. Reset chart-local interactions first.
+		if (currentTasks && currentTasks.length) {
+			currentTasks.forEach(collapseAll);
 		}
-		setTimeDomain(currentTasks);
-		xScale = axisManager.buildXScale({
-			timeDomainStart: timeDomainStart,
-			timeDomainEnd: timeDomainEnd,
-			width: width,
-			focusTask: focusTask,
-			xAxisDistortion: xAxisDistortion,
-		});
-		applyZoomDomain(xScale.domain(), { recomputeLayout: true });
+		focusTask = null;
+		expandVisibleLock = null;
+		zoomManager.clearState();
+		if (modal && typeof modal.hideInfoTooltip === "function") {
+			modal.hideInfoTooltip();
+		}
+		// Remove stale nested subchart DOM before the next dataset redraw.
+		// With descendant-based selections, leftover subgantt DOM can be picked up
+		// by the parent chart joins and corrupt the render.
+		if (ganttChartGroup && typeof ganttChartGroup.selectAll === "function") {
+			ganttChartGroup.selectAll("foreignObject.subgantt-container").remove();
+		}
 	}
 
 	// ---------------------------------------------------------------------------
 	// Main render pipeline
 	// ---------------------------------------------------------------------------
 
-	function updateChart(tasks) {
+	function updateChart(tasks, renderOptions) {
 		// Single render pipeline that handles both initial render and redraws.
 		// This keeps all updates in one place to avoid drift between gantt()
 		// and gantt.redraw(), and ensures all dependent elements stay in sync.
+		var animateRender = !(renderOptions && renderOptions.animate === false);
 		currentTasks = tasks || [];
 		var visibleTaskTypes = getVisibleTaskTypes();
+		renderTaskTypes = visibleTaskTypes.slice();
+		updateDynamicLeftMargin(getTaskLabelNamesForMargin(visibleTaskTypes));
 		annotateParents(currentTasks, null, !!gantt._preserveBaseTask);
 		computeRowLayout(currentTasks, visibleTaskTypes);
 		updateRenderRowLayout();
@@ -1120,23 +2032,41 @@ d3.gantt = function() {
 			width: width,
 			focusTask: focusTask,
 			xAxisDistortion: xAxisDistortion,
+			focusMinPixelWidth: focusTask && focusTask.expanded
+				? getExpandFloor(focusTask.__expandMinWidth)
+				: 0,
 		});
 		axisManager.setTickFormat(tickFormat);
+		if (axisManager.setXTickValues) {
+			axisManager.setXTickValues(xAxisTickValues);
+		}
+		if (axisManager.setYTickFormatter) {
+			axisManager.setYTickFormatter(yAxisLabelFormatter);
+		}
+		if (axisManager.setAxisLabelsEnabled) {
+			axisManager.setAxisLabelsEnabled(axisLabelsEnabled);
+		}
+		if (axisManager.setAxisLinesEnabled) {
+			axisManager.setAxisLinesEnabled(axisLinesEnabled);
+		}
 		axisManager.updateScales({
 			xScale: xScale,
-			taskTypes: visibleTaskTypes,
-			rowLayout: renderRowLayout
+			taskTypes: renderTaskTypes,
+			rowLayout: renderRowLayout,
+			width: width,
+			totalHeight: totalChartHeight
 		});
 
 		var hadSvg = rootSvg && typeof rootSvg.empty === "function" ? !rootSvg.empty() : !!rootSvg;
 		ensureSvg();
+		updateDateBadge();
 		applyZoomHandlers();
 
 		function maybeTransition(selection) {
 			// Use transitions only after the SVG exists to avoid animating
 			// initial creation. This keeps first render snappy and avoids
 			// confusing "from zero" animations.
-			if (hadSvg && transitionDuration > 0) {
+			if (animateRender && hadSvg && transitionDuration > 0) {
 				return selection.transition().duration(transitionDuration);
 			}
 			return selection;
@@ -1144,6 +2074,7 @@ d3.gantt = function() {
 
 		var svg = ganttChartGroup;
 		var linksGroup = linkManager.ensureLinksLayer(svg);
+		linksGroup.attr("clip-path", "url(#" + linksClipId + ")");
 		axisManager.ensureAxisGroups(ganttChartGroup);
 		var prepared = prepareRenderData(currentTasks);
 
@@ -1152,6 +2083,10 @@ d3.gantt = function() {
 		var groups = updateTaskGroups(svg, prepared.bars, maybeTransition);
 
 		axisManager.updateAxes(totalChartHeight, maybeTransition);
+		if (axisManager.sendToBack) {
+			axisManager.sendToBack();
+		}
+		updateExpandedYDialogLabels(maybeTransition);
 		linkManager.updateLinks({
 			linksGroup: linksGroup,
 			tasks: currentTasks,
@@ -1179,8 +2114,16 @@ d3.gantt = function() {
 			hideUnvisitedRows: hideUnvisitedRows,
 			xAxisDistortion: xAxisDistortion,
 			subchartLines: subchartLines,
-			transitionDuration: transitionDuration
+			subchartAxisLabelsEnabled: subchartAxisLabelsEnabled,
+			subchartAxisLinesEnabled: subchartAxisLinesEnabled,
+			parentTickValues: getCurrentXAxisTicks(),
+			popupCatalog: popupCatalog,
+			currentUser: currentUserInfo,
+			transitionDuration: animateRender ? transitionDuration : 0
 		});
+		// Keep legend above axis/grid and bars in the individual chart.
+		updateSceneLegend(currentTasks);
+		bringLegendToFront();
 
 		return gantt;
 	}
@@ -1188,42 +2131,40 @@ d3.gantt = function() {
 	// Public chart API
 	// ---------------------------------------------------------------------------
 
-	function gantt(selection) {
+	function gantt(tasks, renderOptions) {
 		// Primary entry point: render with the current configuration.
 		// We keep this thin so the core logic stays in updateChart().
-		selection.each(function(data) { 
-			
-			return updateChart(data);
-		})
+		return updateChart(tasks, renderOptions);
     };
 
     // Update render: reuse SVG, apply transitions, and keep subcharts in sync.
-    gantt.redraw = function(tasks) {
+    gantt.redraw = function(tasks, renderOptions) {
 		// Public redraw API used after interactions (expand/collapse, resize, etc.).
 		// It intentionally delegates to updateChart() so the render path stays unified.
-		return updateChart(tasks);
+		return updateChart(tasks, renderOptions);
     };
 
     // Chainable setters/getters for configuration.
 	// These follow the standard D3 pattern: call with no args to read,
 	// call with a value to set and return the chart for chaining.
-    gantt.margin = function(value) {
+	gantt.margin = function(value) {
 		if (!arguments.length)
 			return margin;
 		margin = value;
+		configuredLeftMargin = margin && typeof margin.left === "number" ? margin.left : configuredLeftMargin;
 		return gantt;
     };
 
     gantt.timeDomain = function(value) {
 		if (!arguments.length)
 			return [ timeDomainStart, timeDomainEnd ];
-		timeDomainStart = +value[0], timeDomainEnd = +value[1];
-		xZoomDomain = null;
-		yZoomState = null;
-		if (zoomBrush && brushGroup) {
-			zoomBrush.clear();
-			brushGroup.call(zoomBrush);
-		}
+		timeDomainStart = new Date(+value[0]);
+		timeDomainEnd = new Date(+value[1]);
+		fixedTimeDomainStart = new Date(+timeDomainStart);
+		fixedTimeDomainEnd = new Date(+timeDomainEnd);
+		xZoomBoundsDomain = [ new Date(+timeDomainStart), new Date(+timeDomainEnd) ];
+		expandVisibleLock = null;
+		zoomManager.clearState();
 		return gantt;
     };
 
@@ -1242,12 +2183,8 @@ d3.gantt = function() {
 			currentTasks.forEach(collapseAll);
 		}
         timeDomainMode = value;
-		xZoomDomain = null;
-		yZoomState = null;
-		if (zoomBrush && brushGroup) {
-			zoomBrush.clear();
-			brushGroup.call(zoomBrush);
-		}
+		expandVisibleLock = null;
+		zoomManager.clearState();
         return gantt;
     };
 
@@ -1263,7 +2200,6 @@ d3.gantt = function() {
 			return taskStatus;
 		taskStatus = value;
 		refreshBarClassOrder();
- 
 		return gantt;
     };
 
@@ -1288,6 +2224,54 @@ d3.gantt = function() {
 		return gantt;
     };
 
+	gantt.xTickValues = function(value) {
+		if (!arguments.length) {
+			return xAxisTickValues;
+		}
+		xAxisTickValues = Array.isArray(value) && value.length ? value.slice() : null;
+		return gantt;
+	};
+
+	gantt.yAxisLabelFormatter = function(value) {
+		if (!arguments.length) {
+			return yAxisLabelFormatter;
+		}
+		yAxisLabelFormatter = (typeof value === "function") ? value : null;
+		return gantt;
+	};
+
+	gantt.axisLabelsEnabled = function(value) {
+		if (!arguments.length) {
+			return axisLabelsEnabled;
+		}
+		axisLabelsEnabled = value !== false;
+		return gantt;
+	};
+
+	gantt.axisLinesEnabled = function(value) {
+		if (!arguments.length) {
+			return axisLinesEnabled;
+		}
+		axisLinesEnabled = value !== false;
+		return gantt;
+	};
+
+	gantt.subchartAxisLabelsEnabled = function(value) {
+		if (!arguments.length) {
+			return subchartAxisLabelsEnabled;
+		}
+		subchartAxisLabelsEnabled = value !== false;
+		return gantt;
+	};
+
+	gantt.subchartAxisLinesEnabled = function(value) {
+		if (!arguments.length) {
+			return subchartAxisLinesEnabled;
+		}
+		subchartAxisLinesEnabled = value !== false;
+		return gantt;
+	};
+
     gantt.selector = function(value) {
 		if (!arguments.length)
 			return selector;
@@ -1309,6 +2293,14 @@ d3.gantt = function() {
 		return gantt;
     };
 
+	gantt.rowBarInset = function(value) {
+		if (!arguments.length)
+			return rowBarInset;
+		var numeric = Number(value);
+		rowBarInset = isFinite(numeric) ? Math.max(0, numeric) : 0;
+		return gantt;
+	};
+
 	gantt.xAxisDistortion = function(value) {
 		if (!arguments.length)
 			return xAxisDistortion;
@@ -1323,33 +2315,83 @@ d3.gantt = function() {
 		return gantt;
 	};
 
-	gantt.zoomEnabled = function(value) {
+	gantt.sceneLegendEnabled = function(value) {
 		if (!arguments.length)
-			return zoomEnabled;
+			return sceneLegendEnabled;
+		sceneLegendEnabled = !!value;
+		return gantt;
+	};
+
+	gantt.sceneLegendMode = function(value) {
+		if (!arguments.length) {
+			return sceneLegendMode;
+		}
+		var normalized = String(value || "").trim().toLowerCase();
+		sceneLegendMode = normalized === "question-outcome"
+			? "question-outcome"
+			: "scene-categories";
+		return gantt;
+	};
+
+	gantt.dateBadgeEnabled = function(value) {
+		if (!arguments.length) {
+			return dateBadgeEnabled;
+		}
+		dateBadgeEnabled = !!value;
+		return gantt;
+	};
+
+	gantt.popupCatalog = function(value) {
+		if (!arguments.length) {
+			return popupCatalog;
+		}
+		popupCatalog = value || null;
+		return gantt;
+	};
+
+	gantt.currentUser = function(value) {
+		if (!arguments.length) {
+			return currentUserInfo;
+		}
+		currentUserInfo = value || null;
+		return gantt;
+	};
+
+	gantt.zoomEnabled = function(value) {
+		if (!arguments.length) {
+			return zoomManager.zoomEnabled();
+		}
 		zoomEnabled = !!value;
+		zoomManager.zoomEnabled(zoomEnabled);
 		return gantt;
 	};
 
 	gantt.rectZoomEnabled = function(value) {
-		if (!arguments.length)
-			return rectZoomEnabled;
+		if (!arguments.length) {
+			return zoomManager.rectZoomEnabled();
+		}
 		rectZoomEnabled = !!value;
-		applyZoomHandlers();
+		zoomManager.rectZoomEnabled(rectZoomEnabled);
 		return gantt;
 	};
 
 	gantt.zoomIn = function() {
-		zoomByFactor(1.2);
+		zoomManager.zoomIn();
 		return gantt;
 	};
 
 	gantt.zoomOut = function() {
-		zoomByFactor(1 / 1.2);
+		zoomManager.zoomOut();
 		return gantt;
 	};
 
 	gantt.resetZoom = function() {
 		resetZoomDomain();
+		return gantt;
+	};
+
+	gantt.resetForDatasetChange = function() {
+		clearInteractionStateForDatasetChange();
 		return gantt;
 	};
 

@@ -40,6 +40,8 @@ function App({sessionId, token}: AppProps) {
 
   const [duration, setDuration] = useState<number>(0);
  
+  const [viewMode, setViewMode] = useState<"A" | "B">("B");
+
 	const tableau10 = d3.scale.category10().range(); 
 
   const boxStyle = {
@@ -54,9 +56,7 @@ function App({sessionId, token}: AppProps) {
         width: "100%",
         borderRadius: "4px"
       }
-
-  const [viewMode, setViewMode] = useState<"A" | "B">("B");
-
+ 
   const handleViewChange = (
     event: React.MouseEvent<HTMLElement>,
     newValue: "A" | "B" | null
@@ -142,6 +142,13 @@ function App({sessionId, token}: AppProps) {
     //ARRUMAR PARA INCLUIR PESSOAS DEPOIS
     setDataGantt(ganttAllData);
   }, [ganttAllData])
+
+  useEffect(() => {
+    if(viewMode == "A"){
+      //fetch dado de tds os usuários
+      
+    }
+  }, [viewMode, method])
 
   const handleChange = (event: SelectChangeEvent<string>) => {
     setSelectedPerson(event.target.value);
@@ -278,9 +285,16 @@ function App({sessionId, token}: AppProps) {
           </div>
          )  : <div/>
         }
-        
-          <GanttChart tasks={dataGantt} taskNames={verticalAxisData} taskStatus={allEmos}/>
 
+        {
+          viewMode == "A" ?
+          //um por usuario
+          Object.entries(allUsers).map(([_, user], i) => (
+            <GanttChart tasks={dataGantt} taskNames={verticalAxisData} taskStatus={allEmos}/>)
+          )
+          :
+          <GanttChart tasks={dataGantt} taskNames={verticalAxisData} taskStatus={allEmos}/>
+        }
           {!loading && <Box
             sx={{
               position: "absolute",

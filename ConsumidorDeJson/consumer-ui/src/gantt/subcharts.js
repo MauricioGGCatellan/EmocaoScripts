@@ -1,4 +1,4 @@
-function updateSubGantts(options) {
+export function updateSubGantts(options) {
 	// Render or update nested subcharts inside expanded tasks.
 	// This function is called every redraw so subcharts stay aligned
 	// with the parent bar geometry and reflect the latest data.
@@ -19,7 +19,96 @@ function updateSubGantts(options) {
 	var hideUnvisitedRows = !!options.hideUnvisitedRows;
 	var xAxisDistortion = !!options.xAxisDistortion;
 	var subchartLines = !!options.subchartLines;
+	var subchartAxisLabelsEnabled = options.subchartAxisLabelsEnabled !== false;
+	var subchartAxisLinesEnabled = options.subchartAxisLinesEnabled !== false;
+	var parentTickValues = options.parentTickValues || null;
+	var popupCatalog = options.popupCatalog || null;
+	var currentUser = options.currentUser || null;
 	var transitionDuration = options.transitionDuration || 0;
+	function buildSubtaskLabelFormatter(parentTaskName) {
+		var prefix = String(parentTaskName || "").trim();
+		var dashedPrefix = prefix ? (prefix + " - ") : "";
+		return function(rawLabel) {
+			var label = String(rawLabel == null ? "" : rawLabel);
+			if (dashedPrefix && label.indexOf(dashedPrefix) === 0) {
+				return label.slice(dashedPrefix.length).trim();
+			}
+			var separatorIndex = label.indexOf(" - ");
+			if (separatorIndex >= 0) {
+				return label.slice(separatorIndex + 3).trim();
+			}
+			return label;
+		};
+	}
+
+	function buildAlignedTickValues(taskStart, taskEnd) {
+		if (!Array.isArray(parentTickValues) || !parentTickValues.length) {
+			return null;
+		}
+		var startMs = +taskStart;
+		var endMs = +taskEnd;
+		if (!isFinite(startMs) || !isFinite(endMs) || endMs <= startMs) {
+			return null;
+		}
+		var seen = {};
+		var ticks = [];
+		parentTickValues.forEach(function(value) {
+			var ms = value instanceof Date ? +value : +value;
+			if (!isFinite(ms) || ms < startMs || ms > endMs) {
+				return;
+			}
+			var key = String(ms);
+			if (seen[key]) {
+				return;
+			}
+			seen[key] = true;
+			ticks.push(new Date(ms));
+		});
+		return ticks.length ? ticks : null;
+	}
+
+	function applyFixedDomainFromParent(subGantt, parentTask) {
+		if (!subGantt || !subGantt.timeDomain || !subGantt.timeDomainMode) {
+			return;
+		}
+		var start = parentTask && parentTask.startDate ? new Date(+parentTask.startDate) : null;
+		var end = parentTask && parentTask.endDate ? new Date(+parentTask.endDate) : null;
+		var startMs = start ? +start : NaN;
+		var endMs = end ? +end : NaN;
+		if (isFinite(startMs) && isFinite(endMs) && endMs > startMs) {
+			subGantt.timeDomain([ start, end ]);
+			subGantt.timeDomainMode("fixed");
+			return;
+		}
+		subGantt.timeDomainMode("fit");
+	}
+
+	function hasQuestionSubtasks(list) {
+		var found = false;
+		function scan(tasks) {
+			(tasks || []).forEach(function(task) {
+				if (found || !task) return;
+				var status = String(task.status || "").toUpperCase();
+				var isQuestion = status === "PERGUNTA";
+				var correctList = Array.isArray(task.correctAlternative)
+					? task.correctAlternative
+					: [ task.correctAlternative ];
+				var hasExplicitCorrect = correctList.some(function(value) {
+					return typeof value === "number" && isFinite(value);
+				});
+				var hasOutcome = hasExplicitCorrect || (isQuestion && typeof task.selectedAlternative === "number");
+				if (hasOutcome) {
+					found = true;
+					return;
+				}
+				if (task.subtasks && task.subtasks.length) {
+					scan(task.subtasks);
+				}
+			});
+		}
+		scan(list);
+		return found;
+	}
 
 	groups.each(function(bar) {
 		// Each task group may own a subchart configuration (bar.subchart).
@@ -57,6 +146,9 @@ function updateSubGantts(options) {
 			var innerW = subchartData.innerW;
 			var targetHeight = subchartData.targetHeight;
 			var subTaskNames = subchartData.subTaskNames;
+			var subtaskLabelFormatter = buildSubtaskLabelFormatter(subtaskRoot.taskName);
+			var alignedTickValues = buildAlignedTickValues(subtaskRoot.startDate, subtaskRoot.endDate);
+			var showQuestionLegend = hasQuestionSubtasks(subtaskRoot.subtasks);
 
 			var foNode = d3.select(this);
 			foNode.style("display", null);
@@ -119,12 +211,36 @@ function updateSubGantts(options) {
 					.selector("#" + subId)
 					.taskTypes(subTaskNames)
 					.taskStatus(taskStatus)
-					.timeDomainMode("fit")
 					.hideUnvisitedRows(hideUnvisitedRows)
+					.sceneLegendEnabled(showQuestionLegend)
+					.dateBadgeEnabled(false)
 					.zoomEnabled(false)
+					.rowBarInset(6)
 					.xAxisDistortion(xAxisDistortion)
 					.chartLines(subchartLines)
 					.subchartLines(subchartLines);
+				if (subGantt.axisLabelsEnabled) {
+					subGantt.axisLabelsEnabled(subchartAxisLabelsEnabled);
+				}
+				if (subGantt.axisLinesEnabled) {
+					subGantt.axisLinesEnabled(subchartAxisLinesEnabled);
+				}
+				if (subGantt.sceneLegendMode) {
+					subGantt.sceneLegendMode(showQuestionLegend ? "question-outcome" : "scene-categories");
+				}
+				if (subGantt.xTickValues) {
+					subGantt.xTickValues(alignedTickValues);
+				}
+				applyFixedDomainFromParent(subGantt, subtaskRoot);
+				if (subGantt.yAxisLabelFormatter) {
+					subGantt.yAxisLabelFormatter(subtaskLabelFormatter);
+				}
+				if (subGantt.popupCatalog) {
+					subGantt.popupCatalog(popupCatalog);
+				}
+				if (subGantt.currentUser) {
+					subGantt.currentUser(currentUser);
+				}
 				subGantt._preserveBaseTask = true;
 				entry = { gantt: subGantt };
 				this.__subgantt = entry;
@@ -137,12 +253,37 @@ function updateSubGantts(options) {
 				.taskTypes(subTaskNames)
 				.taskStatus(taskStatus)
 				.hideUnvisitedRows(hideUnvisitedRows)
+				.sceneLegendEnabled(showQuestionLegend)
+				.dateBadgeEnabled(false)
 				.margin(subMargin)
 				.width(innerW)
 				.height(targetHeight)
+				.rowBarInset(6)
 				.xAxisDistortion(xAxisDistortion)
 				.chartLines(subchartLines)
 				.subchartLines(subchartLines);
+			if (entry.gantt.axisLabelsEnabled) {
+				entry.gantt.axisLabelsEnabled(subchartAxisLabelsEnabled);
+			}
+			if (entry.gantt.axisLinesEnabled) {
+				entry.gantt.axisLinesEnabled(subchartAxisLinesEnabled);
+			}
+			if (entry.gantt.sceneLegendMode) {
+				entry.gantt.sceneLegendMode(showQuestionLegend ? "question-outcome" : "scene-categories");
+			}
+			if (entry.gantt.xTickValues) {
+				entry.gantt.xTickValues(alignedTickValues);
+			}
+			applyFixedDomainFromParent(entry.gantt, subtaskRoot);
+			if (entry.gantt.yAxisLabelFormatter) {
+				entry.gantt.yAxisLabelFormatter(subtaskLabelFormatter);
+			}
+			if (entry.gantt.popupCatalog) {
+				entry.gantt.popupCatalog(popupCatalog);
+			}
+			if (entry.gantt.currentUser) {
+				entry.gantt.currentUser(currentUser);
+			}
 
 			if (entry.gantt.redraw) {
 				// Prefer redraw() when available so the nested chart follows

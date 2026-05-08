@@ -1,3 +1,78 @@
+function normalizeStatus(status) {
+	return String(status || "").trim().toUpperCase();
+}
+
+function isValidDate(date) {
+	return date instanceof Date && Number.isFinite(date.getTime());
+}
+
+function isQuizTask(task) {
+	if (normalizeStatus(task && task.status) === "QUIZ") {
+		return true;
+	}
+	if (task && task.source && Array.isArray(task.source.games)) {
+		return task.source.games.some(function(game) {
+			return normalizeStatus(game && game.mechanic) === "QUIZ";
+		});
+	}
+	return (task && Array.isArray(task.subtasks) ? task.subtasks : []).some(isQuizQuestionTask);
+}
+
+function isQuizQuestionTask(task) {
+	return normalizeStatus(task && task.status) === "PERGUNTA";
+}
+
+function getForcedStatusColorClass(status) {
+	var normalizedStatus = normalizeStatus(status);
+	if (
+		normalizedStatus === "QUIZ" ||
+		normalizedStatus === "MINI_JOGO" ||
+		normalizedStatus === "MINIGAME"
+	) {
+		return "bar-yellow";
+	}
+	return null;
+}
+
+// Quiz question blocks should cover the whole quiz duration. Some JSON files
+// stop the final question before the quiz ends, which creates an empty tail in
+// the expanded chart even though the quiz is still active.
+function alignQuizQuestionDurations(task) {
+	if (!isQuizTask(task) || !isValidDate(task.startDate) || !isValidDate(task.endDate)) {
+		return;
+	}
+	var questions = (task.subtasks || []).filter(function(subtask) {
+		return isQuizQuestionTask(subtask) && isValidDate(subtask.startDate) && isValidDate(subtask.endDate);
+	}).sort(function(a, b) {
+		return a.startDate.getTime() - b.startDate.getTime();
+	});
+	if (!questions.length) {
+		return;
+	}
+	var quizStart = task.startDate.getTime();
+	var quizEnd = task.endDate.getTime();
+	questions.forEach(function(question, index) {
+		var start = question.startDate.getTime();
+		if (index === 0 || start < quizStart) {
+			start = quizStart;
+		}
+		if (start > quizEnd) {
+			start = quizEnd;
+		}
+		question.startDate = new Date(start);
+
+		var nextQuestion = questions[index + 1];
+		var targetEnd = nextQuestion ? nextQuestion.startDate.getTime() : quizEnd;
+		if (targetEnd < start) {
+			targetEnd = start;
+		}
+		if (targetEnd > quizEnd) {
+			targetEnd = quizEnd;
+		}
+		question.endDate = new Date(targetEnd);
+	});
+}
+
 // Normalize a single task object into the exact shape the chart expects.
 // We do this once up front so the render layer can assume consistent fields
 // (Date objects, taskName, status, expanded flag, and a real subtasks array).
@@ -24,14 +99,15 @@ function normalizeTask(task) {
 		subtaskLayout = subtasks.layout || null;
 	}
 	normalized.subtaskLayout = subtaskLayout;
-	normalized.subtasks = subList.map(normalizeTask); // recursion to normalize the subtasks as well
+	normalized.subtasks = subList.map(normalizeTask);
+	alignQuizQuestionDurations(normalized);
 	return normalized;
 }
 
 // Normalize an entire task list (top-level tasks only).
 // Returning an empty array for invalid inputs keeps callers simple and avoids
 // crashes when JSON is missing or malformed.
-function normalizeTaskList(list) {
+export function normalizeTaskList(list) {
 	if (!Array.isArray(list)) {
 		return [];
 	}
@@ -42,11 +118,17 @@ function normalizeTaskList(list) {
 // We assume the JSON-provided statuses list is complete, so we don't scan
 // the tasks for unknown statuses.
 // Create a simple status -> color-class map using the provided status list.
-function mapStatusColors(declared, classPool) {
+export function mapStatusColors(declared, classPool) {
 	var order = Array.isArray(declared) ? declared : [];
 	var mapping = {};
 	var pool = Array.isArray(classPool) && classPool.length ? classPool : [ "bar" ];
 	order.forEach(function(status, index) {
+		var forcedClass = getForcedStatusColorClass(status);
+		if (forcedClass) {
+			mapping[status] = forcedClass;
+			return;
+		}
+
 		mapping[status] = pool[index % pool.length];
 	});
 	return mapping;
@@ -55,7 +137,7 @@ function mapStatusColors(declared, classPool) {
 // Determine which row labels should appear on the chart and in what order.
 // We assume the JSON-provided row list is complete, so we only filter it
 // when the user wants to hide unvisited rows.
-function defineRowOrder(list, scenes, hideUnvisited) {
+export function defineRowOrder(list, scenes, hideUnvisited) {
 	var visited = {};
 	list.forEach(function(task) {
 		if (task.taskName) {
@@ -72,9 +154,9 @@ function defineRowOrder(list, scenes, hideUnvisited) {
 }
 
 // Read the full JSON payload and split it into ready-to-use pieces for the UI:
-// normalized tasks, row order, status order, and user metadata.
+// normalized tasks, row order, status order, user metadata, and assets metadata.
 // This keeps the rest of the app focused on rendering rather than parsing.
-function readJsonFile(data) {
+export function readJsonFile(data) {
 	var payload = data && data.tasks ? data.tasks : data;
 	var tasks = normalizeTaskList(payload || []);
 	var scenesOrder = data && data.layout && Array.isArray(data.layout.rowOrder)
@@ -84,10 +166,14 @@ function readJsonFile(data) {
 		? data.layout.statuses
 		: (data && Array.isArray(data.statuses) ? data.statuses : []);
 	var userInfo = data && data.user ? data.user : null;
+	var assets = data && data.assets
+		? data.assets
+		: (data && data.user && data.user.assets ? data.user.assets : null);
 	return {
 		tasks: tasks,
 		scenesOrder: scenesOrder,
 		statusOrder: statusOrder,
-		userInfo: userInfo
+		userInfo: userInfo,
+		assets: assets
 	};
 }

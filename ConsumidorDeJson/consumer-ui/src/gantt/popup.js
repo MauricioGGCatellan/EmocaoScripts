@@ -1,64 +1,252 @@
+import {
+	applyPopupViewportInset,
+	bindPopupShellEvents,
+	createEl as createPopupEl,
+	ensureDropdownDescription,
+	ensurePopupShell,
+	fitPopupGridHeight,
+	mergeStyles,
+	setStyles
+} from "../popup-shell.js";
+import { createStorylinesInfoModal } from "../storylines/popup.js";
+
 // Popup factory that returns a small, focused API for the chart.
 // We keep construction and update logic inside this module so the chart only
 // needs to call showInfoTooltip(task) without worrying about DOM details.
 // "deps" allows injecting helpers (like getBaseTask) and a document reference,
 // which makes the module more testable and avoids hard-coding globals.
- 
-function createInfoModal(deps) {
+export function createInfoModal(deps) {
 	var getBaseTask = deps && deps.getBaseTask ? deps.getBaseTask : function(task) { return task; };
-	var doc = deps && deps.document ? deps.document : document; 
-	var getAllStatus = deps && deps.getAllStatus ? deps.getAllStatus : function(){return null;};
+	var getPopupCatalog = deps && deps.getPopupCatalog ? deps.getPopupCatalog : function() { return null; };
+	var getCurrentUser = deps && deps.getCurrentUser ? deps.getCurrentUser : function() { return null; };
+	var doc = deps && deps.document ? deps.document : document;
+	var win = doc.defaultView || window;
 
 	// Modal UI for task details (kept outside SVG for easier layout).
 	// We keep references to the top-level nodes only; individual fields are
 	// queried on demand
 	var infoModal = null;
 	var infoBackdrop = null;
-	var resizeBound = false;
 	var currentTemplateKey = null;
 	var currentBaseTask = null;
-	var emoImages = {happy: "/assets/feliz.jpg",
-		sad: "/assets/triste.png",
-		fear: "/assets/medo.png",
-		neutral: "/assets/neutro.png",
-		disgust: "/assets/nojo.png",
-		angry: "/assets/raiva.jpg"
+	var createEl = function(tag, className, text) {
+		return createPopupEl(doc, tag, className, text);
+	};
+	var storylinesInfoModal = createStorylinesInfoModal({ document: doc });
+
+	function normalizeText(value) {
+		return String(value || "")
+			.normalize("NFD")
+			.replace(/[\u0300-\u036f]/g, "")
+			.toLowerCase()
+			.trim();
 	}
 
-	// Apply multiple inline styles in one call.
-	// This keeps element creation readable and ensures the popup can be fully
-	// styled without relying on external CSS ordering or bundler timing.
-	function setStyles(el, styles) {
-		if (!el || !styles) return;
-		Object.keys(styles).forEach(function(key) {
-			el.style[key] = styles[key];
+	function resolveCatalogUsers(catalog) {
+		var list = catalog && Array.isArray(catalog.users) ? catalog.users : [];
+		return list.map(function(user, index) {
+			return {
+				id: user && user.id ? String(user.id) : ("user-" + (index + 1)),
+				label: user && user.label ? String(user.label) : ("Usuário " + (index + 1))
+			};
 		});
 	}
 
-	// Small DOM factory to reduce repeated boilerplate.
-	// We centralize class/text assignment so the markup structure is obvious
-	// when scanning the popup builder below.
-	function createEl(tag, className, text) {
-		var el = doc.createElement(tag);
-		if (className) {
-			el.className = className;
+	function resolveCatalogUserId(catalog, currentUser) {
+		var users = resolveCatalogUsers(catalog);
+		if (!users.length) return "";
+		var user = currentUser || {};
+		var rawId = String(user.id || "").trim();
+		var rawLabel = String(user.label || user.name || "").trim();
+		if (rawId) {
+			var byId = users.find(function(entry) {
+				return String(entry.id) === rawId;
+			});
+			if (byId) return byId.id;
 		}
-		if (text !== undefined) {
-			el.textContent = text;
+		if (rawLabel) {
+			var normalizedLabel = normalizeText(rawLabel);
+			var byLabel = users.find(function(entry) {
+				return normalizeText(entry.label) === normalizedLabel;
+			});
+			if (byLabel) return byLabel.id;
 		}
-		return el;
+		return users[0].id;
 	}
 
-	// Merge style objects without mutating the originals.
-	function mergeStyles(base, overrides) {
-		var merged = {};
-		Object.keys(base || {}).forEach(function(key) {
-			merged[key] = base[key];
+	function resolveIndividualSubtype(baseTask, catalog) {
+		var sceneName = baseTask && baseTask.taskName ? String(baseTask.taskName) : "";
+		var explicitType = catalog && catalog.sceneTypeByName && catalog.sceneTypeByName[sceneName]
+			? String(catalog.sceneTypeByName[sceneName])
+			: "";
+		if (explicitType) {
+			return explicitType;
+		}
+		var status = String(baseTask && baseTask.status ? baseTask.status : "").toUpperCase();
+		var normalizedScene = normalizeText(sceneName);
+		if (status === "QUIZ" || normalizedScene.indexOf("quiz") !== -1) return "quiz";
+		if (status === "COLETA" || normalizedScene.indexOf("coleta") !== -1) return "coleta";
+		if (status === "ENCAIXE" || normalizedScene.indexOf("encaixe") !== -1) return "encaixe";
+		return "cena";
+	}
+
+	function getCatalogEntry(catalog, mode, subtype, sceneName) {
+		var modeBucket = catalog && catalog[mode] ? catalog[mode] : null;
+		var typeBucket = modeBucket && modeBucket[subtype] ? modeBucket[subtype] : null;
+		if (!typeBucket) return null;
+		return typeBucket[sceneName] || null;
+	}
+
+	function toSeconds(valueMs) {
+		return Math.max(0, Math.round((valueMs || 0) / 1000));
+	}
+
+	function buildFallbackSceneEntry(baseTask, userId) {
+		if (!baseTask) return null;
+		var subtasks = getSubtaskList(baseTask);
+		var dialogs = subtasks.map(function(subtask, index) {
+			var selectedIndex = typeof subtask.selectedAlternative === "number" ? subtask.selectedAlternative : null;
+			var options = (Array.isArray(subtask.alternatives) ? subtask.alternatives : []).map(function(option, optionIndex) {
+				var text = "";
+				if (typeof option === "string") {
+					text = option;
+				} else if (option && typeof option.texto === "string") {
+					text = option.texto;
+				} else if (option != null) {
+					text = String(option);
+				}
+				var isSelected = selectedIndex === optionIndex;
+				return {
+					texto: text || ("Opção " + (optionIndex + 1)),
+					percentual: selectedIndex === null ? 0 : (isSelected ? 100 : 0),
+					selecionada: isSelected
+				};
+			});
+			return {
+				label: subtask && subtask.taskName ? subtask.taskName : ("Diálogo " + (index + 1)),
+				texto: subtask && subtask.text ? subtask.text : "",
+				tempoDialogoSeg: toSeconds((subtask && subtask.endDate && subtask.startDate) ? (subtask.endDate - subtask.startDate) : 0),
+				actorType: (subtask && (subtask.actorType || subtask.speaker || subtask.actor || subtask.who)) || "Jogador",
+				opcoes: options,
+				images: subtask && subtask.imageUrl ? [ subtask.imageUrl ] : []
+			};
 		});
-		Object.keys(overrides || {}).forEach(function(key) {
-			merged[key] = overrides[key];
+		var interactionCount = dialogs.filter(function(dialog) {
+			return Array.isArray(dialog.opcoes) && dialog.opcoes.length;
+		}).length;
+		var start = baseTask && baseTask.startDate ? baseTask.startDate : null;
+		var end = baseTask && baseTask.endDate ? baseTask.endDate : null;
+		var durationMs = start && end ? Math.max(0, end - start) : 0;
+		var safeUserId = userId || "user-1";
+		var users = {};
+		users[safeUserId] = {
+			tempoPermanenciaSeg: toSeconds(durationMs),
+			interacoesRealizadas: interactionCount,
+			dialogos: dialogs
+		};
+		return {
+			title: baseTask && baseTask.taskName ? baseTask.taskName : "Detalhes",
+			users: users
+		};
+	}
+
+	function buildNavigationFromCatalog(catalog, defaultUserId) {
+		var navigation = [];
+		var seen = {};
+		var pushEntry = function(mode, subtype, sceneName, entry) {
+			if (!sceneName || !entry) return;
+			var key = [ mode, subtype, sceneName ].join("::");
+			if (seen[key]) return;
+			seen[key] = true;
+			navigation.push({
+				mode: mode,
+				subtype: subtype,
+				sceneName: sceneName,
+				title: entry && entry.title ? entry.title : sceneName,
+				entry: entry,
+				defaultUserId: defaultUserId || ""
+			});
+		};
+
+		[ "general", "individual" ].forEach(function(mode) {
+			var modeBucket = catalog && catalog[mode] ? catalog[mode] : null;
+			[ "cena", "quiz", "coleta", "encaixe" ].forEach(function(subtype) {
+				var bucket = modeBucket && modeBucket[subtype] ? modeBucket[subtype] : null;
+				if (!bucket && mode === "individual" && subtype === "encaixe") {
+					bucket = catalog && catalog.general && catalog.general.encaixe ? catalog.general.encaixe : null;
+				}
+				if (!bucket) return;
+				Object.keys(bucket).forEach(function(sceneName) {
+					pushEntry(mode, subtype, sceneName, bucket[sceneName]);
+				});
+			});
 		});
-		return merged;
+
+		return navigation;
+	}
+
+	function buildStorylinesPayload(task) {
+		var catalog = getPopupCatalog();
+		if (!catalog) return null;
+
+		var baseTask = getBaseTask(task) || task;
+		if (!baseTask) return null;
+
+		var sceneName = baseTask.taskName ? String(baseTask.taskName) : "";
+		if (!sceneName) return null;
+
+		var users = resolveCatalogUsers(catalog);
+		var userId = resolveCatalogUserId(catalog, getCurrentUser());
+		if (!userId && users.length) {
+			userId = users[0].id;
+		}
+
+		var subtype = resolveIndividualSubtype(baseTask, catalog);
+		var entry = getCatalogEntry(catalog, "individual", subtype, sceneName);
+		if (!entry && subtype === "encaixe") {
+			entry = getCatalogEntry(catalog, "general", "encaixe", sceneName);
+		}
+		if (!entry && subtype !== "cena") {
+			entry = getCatalogEntry(catalog, "individual", "cena", sceneName)
+				|| getCatalogEntry(catalog, "general", "cena", sceneName);
+			if (entry) {
+				subtype = "cena";
+			}
+		}
+		if (!entry) {
+			subtype = "cena";
+			entry = buildFallbackSceneEntry(baseTask, userId);
+		}
+		if (!entry) return null;
+
+		var selectedUserIds = userId ? [ userId ] : [];
+		var navigation = buildNavigationFromCatalog(catalog, userId);
+		var currentKey = [ "individual", subtype, sceneName ].join("::");
+		var hasCurrent = navigation.some(function(item) {
+			return [ item.mode, item.subtype, item.sceneName ].join("::") === currentKey;
+		});
+		if (!hasCurrent) {
+			navigation.unshift({
+				mode: "individual",
+				subtype: subtype,
+				sceneName: sceneName,
+				title: entry && entry.title ? entry.title : sceneName,
+				entry: entry,
+				defaultUserId: userId || ""
+			});
+		}
+
+		return {
+			mode: "individual",
+			subtype: subtype,
+			sceneName: sceneName,
+			title: entry && entry.title ? entry.title : sceneName,
+			entry: entry,
+			users: users,
+			defaultUserId: userId || "",
+			selectedUserIds: selectedUserIds,
+			navigation: navigation
+		};
 	}
 
 	var baseBoxStyles = {
@@ -76,20 +264,20 @@ function createInfoModal(deps) {
 		justifyContent: "center"
 	};
 
-	var baseValueStyles = { font: "20px Arial, sans-serif" };
+	var baseValueStyles = { font: "20px var(--font-main)" };
 	var baseLabelStyles = {
-		font: "14px Arial, sans-serif",
+		font: "14px var(--font-main)",
 		textTransform: "uppercase",
 		color: "rgba(0, 0, 0, 0.6)"
 	};
-	var baseBodyStyles = { font: "16px Arial, sans-serif" };
+	var baseBodyStyles = { font: "16px var(--font-main)" };
 	var baseGridStyles = {
 		display: "grid",
-		gridTemplateColumns: "248px 292px 225px",
+		gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
 		gridAutoRows: "minmax(54px, 1fr)",
-		columnGap: "40px",
-		rowGap: "18px",
-		padding: "9px 30px 30px",
+		columnGap: "clamp(12px, 2vw, 40px)",
+		rowGap: "clamp(12px, 1.6vw, 18px)",
+		padding: "clamp(6px, 1vh, 9px) clamp(12px, 2vw, 30px) clamp(12px, 2.5vh, 30px)",
 		alignItems: "stretch",
 		justifyContent: "stretch",
 		alignContent: "stretch",
@@ -123,90 +311,41 @@ function createInfoModal(deps) {
 	}
 
 	function getPopupTemplateKey(task) {
-		// INSERT HERE: only need to add the base status 
+		// Resolve template by normalized base status so payload variations
+		// (case/whitespace/new statuses) do not fall into the "ERRO" fallback.
 		var baseTask = getBaseTask(task);
 		var target = baseTask || task;
-
-		if (target && target.status === "MINIGAME") {
+		var status = String(target && target.status ? target.status : "")
+			.trim()
+			.toUpperCase();
+		if (status === "MINIGAME" || status === "QUIZ" || status === "COLETA" || status === "ENCAIXE") {
 			return "minigame";
 		}
-
-		if (target && target.status === "CENA") {
+		if (status === "CENA" || status === "DIALOGO" || status === "PERGUNTA" || status === "PARTE") {
 			return "cena";
 		}
-
-		const emocoes = ['fear', 'sad','happy', 'disgust', 'surprise', 'angry', 'neutral']
-		const emocoesPt = ['medo', 'triste', 'feliz', 'nojo', 'surpresa', 'raiva', 'neutro']
-		if(target && (emocoes.includes(target.status) || emocoesPt.includes(target.status))){
-			return "emocao";
-		}
-
-		return "default";
+		return "cena";
 	}
 
-	function buildPopupShell() {
-		infoBackdrop = createEl("div", "task-info-backdrop");
-		setStyles(infoBackdrop, {
-			position: "fixed",
-			left: "0",
-			top: "0",
-			width: "100%",
-			height: "100%",
-			background: "rgba(0, 0, 0, 0.35)",
-			display: "none",
-			zIndex: 999
+	function ensurePopupShellDom() {
+		var shell = ensurePopupShell({
+			document: doc,
+			backdropClass: "popup-backdrop task-info-backdrop",
+			modalClass: "popup-modal task-info-modal",
+			closeClass: "popup-close task-info-close",
+			titleClass: "popup-title task-info-title",
+			bodyClass: "popup-grid task-info-grid",
+			closeText: "X"
 		});
-		doc.body.appendChild(infoBackdrop);
-
-		infoModal = createEl("div", "task-info-modal");
-		setStyles(infoModal, {
-			position: "fixed",
-			display: "none",
-			left: "10vw",
-			top: "10vh",
-			width: "80vw",
-			height: "80vh",
-			maxWidth: "none",
-			maxHeight: "none",
-			boxSizing: "border-box",
-			padding: "20px",
-			background: "#ffffff",
-			border: "2px solid rgba(0, 0, 0, 0.25)",
-			borderRadius: "16px",
-			boxShadow: "0 10px 30px rgba(0, 0, 0, 0.35)",
-			font: "22px Arial, sans-serif",
-			color: "#1a1a1a",
-			textAlign: "center",
-			zIndex: 1000
+		infoBackdrop = shell.backdrop;
+		infoModal = shell.modal;
+		bindPopupShellEvents(shell, {
+			document: doc,
+			window: win,
+			onClose: hideInfoTooltip,
+			onResizeVisible: ResizePopup
 		});
-		doc.body.appendChild(infoModal);
-
-		var closeButton = createEl("button", "task-info-close", "X");
-		closeButton.type = "button";
-		setStyles(closeButton, {
-			position: "absolute",
-			top: "10px",
-			right: "12px",
-			background: "transparent",
-			border: "none",
-			font: "18px Arial, sans-serif",
-			color: "#000000",
-			cursor: "pointer"
-		});
-		infoModal.appendChild(closeButton);
-
-		var title = createEl("div", "task-info-title");
-		setStyles(title, {
-			padding: "8px 40px 4px",
-			fontWeight: "bold",
-			textAlign: "center"
-		});
-		infoModal.appendChild(title);
-
-		var grid = createEl("div", "task-info-grid");
-		infoModal.appendChild(grid);
-
-		return grid;
+		return shell.body;
 	}
 
 	function getPopupTemplates() {
@@ -270,12 +409,15 @@ function createInfoModal(deps) {
 							{
 								tag: "select",
 								className: "task-info-subtask-select",
+								attrs: {
+									"aria-describedby": ensureDropdownDescription(doc)
+								},
 								styles: {
 									width: "100%",
 									padding: "7px 9px",
 									borderRadius: "8px",
 									border: "1px solid rgba(0, 0, 0, 0.2)",
-									font: "16px Arial, sans-serif"
+									font: "16px var(--font-main)"
 								}
 							}
 						]
@@ -324,7 +466,7 @@ function createInfoModal(deps) {
 						justifyContent: "center",
 						textAlign: "center",
 						color: "rgba(0, 0, 0, 0.45)",
-						font: "14px Arial, sans-serif"
+						font: "14px var(--font-main)"
 					});
 					grid.appendChild(imageBox);
 				},
@@ -347,17 +489,16 @@ function createInfoModal(deps) {
 					var subtaskValue = infoModal.querySelector(".task-info-subtasks .task-info-value");
 					var currentSubtaskBox = infoModal.querySelector(".task-info-current-subtask");
 					if (title) {
-						title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : ""; 
+						title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : "";
 					}
 					if (durationValue) {
-						durationValue.textContent = formatDuration(durationMs); 
-						durationValue.textContent += baseTask.status; 
+						durationValue.textContent = formatDuration(durationMs);
 					}
 					if (subtaskValue) {
-						subtaskValue.textContent = subtaskCount; 
+						subtaskValue.textContent = subtaskCount;
 					}
 					if (currentSubtaskBox) {
-						currentSubtaskBox.style.display = firstSubtask ? "flex" : "none"; 
+						currentSubtaskBox.style.display = firstSubtask ? "flex" : "none";
 					}
 
 					updateSelectedSubtaskDuration(selectedSubtask || firstSubtask);
@@ -367,7 +508,7 @@ function createInfoModal(deps) {
 					updateSelector(subtasks, selectedSubtask);
 				}
 			},
-			minigame: {
+				minigame: {
 				gridStyles: {
 					gridTemplateColumns: "1fr 1fr 1fr",
 					gridAutoRows: "minmax(70px, 1fr)",
@@ -392,289 +533,63 @@ function createInfoModal(deps) {
 							{ className: "task-info-label", text: "Dialogos", styles: baseLabelStyles }
 						]
 					});
-				},
-				updateContent: function(context) {
-					// placeholder for minigame-specific updates
+					},
+					updateContent: function(context) {
+						var task = context.task || null;
+						var baseTask = context.baseTask || getBaseTask(task);
+						var start = baseTask && baseTask.startDate ? baseTask.startDate : null;
+						var end = baseTask && baseTask.endDate ? baseTask.endDate : null;
+						var durationMs = start && end ? Math.max(0, end - start) : 0;
+						var subtaskCount = countSubtasks(baseTask);
 
+						var title = infoModal.querySelector(".task-info-title");
+						var durationValue = infoModal.querySelector(".task-info-duration .task-info-value");
+						var subtaskValue = infoModal.querySelector(".task-info-subtasks .task-info-value");
 
+						if (title) {
+							title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : "";
+						}
+						if (durationValue) {
+							durationValue.textContent = formatDuration(durationMs);
+						}
+						if (subtaskValue) {
+							subtaskValue.textContent = subtaskCount;
+						}
+					}
 				}
-			}
-			,
-			emocao: {
-				gridStyles: {
-					gridTemplateRows: "repeat(6, minmax(54px, max-content))"
-				},
-				buildContent: function(grid) {
-					// INSERT HERE: add new box templates for the "cena" popup.
-					// Box template fields:
-					// - className: extra class(es) for the box container
-					// - styles: inline style overrides for the box
-					// - elements: array of child definitions:
-					//   - tag: element tag name (defaults to "div")
-					//   - className: class(es) for the child
-					//   - text: textContent for the child
-					//   - styles: inline styles for the child
-					//   - attrs: attributes map (e.g., { "data-id": "..." })
-					createBoxTemplate(grid, {
-						className: "task-info-duration",
-						styles: {
-							gridColumn: "1",
-							gridRow: "1"
-						},
-						elements: [
-							{ className: "task-info-value", styles: baseValueStyles },
-							{ className: "task-info-label", text: "Tempo total", styles: baseLabelStyles }
-						]
-					});
-
-					createBoxTemplate(grid, {
-						className: "task-info-current-subtask",
-						styles: {
-							gridColumn: "2",
-							gridRow: "1",
-							justifySelf: "stretch",
-							alignSelf: "stretch",
-							display: "none"
-						},
-						elements: [
-							{ className: "task-info-value", styles: baseValueStyles },
-							{ className: "task-info-label", text: "Tempo de permanencia no dialogo", styles: baseLabelStyles }
-						]
-					});
-
-					createBoxTemplate(grid, {
-						className: "task-info-subtask-selector",
-						styles: {
-							gridColumn: "3",
-							gridRow: "1",
-							justifySelf: "stretch",
-							padding: "11px 14px",
-							display: "none",
-							alignItems: "stretch",
-							gap: "8px"
-						},
-						elements: [
-							{ className: "task-info-label", text: "Selecionar dialogo", styles: baseLabelStyles },
-							{
-								tag: "select",
-								className: "task-info-subtask-select",
-								styles: {
-									width: "100%",
-									padding: "7px 9px",
-									borderRadius: "8px",
-									border: "1px solid rgba(0, 0, 0, 0.2)",
-									font: "16px Arial, sans-serif"
-								}
-							}
-						]
-					});
-
-					createBoxTemplate(grid, {
-						className: "task-info-subtasks",
-						styles: {
-							gridColumn: "2",
-							gridRow: "2"
-						},
-						elements: [
-							{ className: "task-info-value", styles: baseValueStyles },
-							{ className: "task-info-label", text: "Dialogos", styles: baseLabelStyles }
-						]
-					});
-
-					createBoxTemplate(grid, {
-						className: "task-info-question",
-						styles: {
-							gridColumn: "1",
-							gridRow: "2",
-							background: "#f6d84a"
-						},
-						elements: [
-							{ className: "task-info-question-title", text: "Todas as emoções:", styles: mergeStyles(baseLabelStyles, { color: "rgba(0, 0, 0, 0.7)" }) },
-							{ className: "task-info-question-text", styles: mergeStyles(baseBodyStyles, { marginTop: "4px" }) }
-						]
-					});
-
-					createBoxTemplate(grid, {
-						className: "task-info-status",
-						styles: {
-							gridColumn: "2 / span 2",
-							gridRow: "6",
-							justifySelf: "stretch",
-							alignSelf: "stretch"
-						},
-						elements: [
-							{ className: "task-info-value", styles: baseValueStyles },
-							{ className: "task-info-label", text: "Status", styles: baseLabelStyles }
-						]
-					});
- 
-					
-					createBoxTemplate(grid, { 
-						className: "task-info-status-text", 
-						styles: mergeStyles(baseBodyStyles, { 
-							gridColumn: "1",
-							gridRow: "3", 
-							gap: "6px",
-							width: "100%", 
-							display: "flex",
-							flexWrap: "wrap",
-							flexDirection: "row",	
-							minHeight: 0,
-							backgroundColor: "white",
-							borderColor: "white"
-						}) 
-					}); 
-
-					var imageBox = createEl("div", "task-info-box task-info-image", "");
-					//emoImages
-					setStyles(imageBox, {
-						gridColumn: "2 / span 2",
-						gridRow: "3 / span 3",
-
-						alignSelf: "start",
-						justifySelf: "start" ,
-						width: "100%",
-						boxSizing: "border-box",
-						//height: "100%", 
-						//minHeight: "200px",
-						maxHeight: "200px", 
-						padding: "14px",
-						border: "2px dashed rgba(0, 0, 0, 0.2)",
-						borderRadius: "12px",
-						background: "rgba(0, 0, 0, 0.02)",
-						display: "inline-flex",
-						alignItems: "center",
-						justifyContent: "center",
-						textAlign: "center",
-						color: "rgba(0, 0, 0, 0.45)",
-						font: "14px Arial, sans-serif"
-					});
-
-				var img = createEl("img", "task-info-image-content");
-
-				setStyles(img, {
-					maxWidth: "100%",
-					maxHeight: "190px",
-					width: "auto",
-					height: "auto",
-					objectFit: "contain",
-					borderRadius: "8px"
-				});
-
-				imageBox.appendChild(img);
-				grid.appendChild(imageBox);
-					grid.appendChild(imageBox);
-				},
-				updateContent: function(context) {
-					// placeholder for default popup updates
-					
-					var task = context.task || null;
-					var selectedSubtask = context.selectedSubtask || (task && task.__parentTask ? task : null);
-					var baseTask = context.baseTask || getBaseTask(task);
-					var start = baseTask && baseTask.startDate ? baseTask.startDate : null;
-					var end = baseTask && baseTask.endDate ? baseTask.endDate : null;
-					var durationMs = start && end ? Math.max(0, end - start) : 0;
-					var subtaskCount = countSubtasks(baseTask);
-					var subtasks = getSubtaskList(baseTask);
-					var firstSubtask = subtasks.length ? subtasks[0] : null;
-					var activeTextTask = selectedSubtask || firstSubtask || baseTask;
-
-					currentBaseTask = baseTask;
-
-					var title = infoModal.querySelector(".task-info-title");
-					var durationValue = infoModal.querySelector(".task-info-duration .task-info-value");
-					var subtaskValue = infoModal.querySelector(".task-info-subtasks .task-info-value");
-					var currentSubtaskBox = infoModal.querySelector(".task-info-current-subtask");
-					var statusValue = infoModal.querySelector(".task-info-status .task-info-value");
-					var emotionsContainer  = infoModal.querySelector(".task-info-status-text");
-					var imageContainer = infoModal.querySelector(".task-info-image-content")
-					let emotionsObj = getAllStatus(); 
-					const emotionTranslations = {
-						"fear": "medo",
-						"sad": "triste",
-						"neutral": "neutro",
-						"happy": "feliz",
-						"surprise": "surpresa",
-						"disgust": "nojo",
-						"angry": "raiva"
-					}
-					if (emotionsObj && typeof emotionsObj === "object") {
-						
-						//imageContainer.style.backgroundImage = `url(${emoImages[task.status]})`;
-						//imageContainer.style.backgroundSize = "cover";
-						//imageContainer.style.backgroundPosition = "center";
-						
-						Object.keys(emotionsObj).forEach(function(emotion) {
-
-							var box = createEl("div", "task-info-emotion-box", emotionTranslations[emotion] || emotion);
-							let color = "white"
-
-							if(emotion == task.status){
-								color = "#f6d84a"
-							}
-							// estilos básicos (ajuste depois via CSS se quiser)
-							setStyles(box, {
-								padding: "6px 10px",
-								borderRadius: "8px", 
-								font: "13px Arial, sans-serif",
-								display: "flex", 
-								marginTop: "4px",
-								width: "100%",
-								alignContent: "flex-start",
-								backgroundColor: color
-							});
-
-							emotionsContainer.appendChild(box);
-					});
-					} else {
-							emotionsContainer.textContent = "Nenhuma emoção detectada";
-					} 
-
-					if (statusValue) {
-						statusValue.textContent = task && task.status ? emotionTranslations[task.status] || task.status : "N/A";
-
-						console.log(imageContainer)
-						imageContainer.src = emoImages[task.status];
-					}
-					if (title) {
-						title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : "";
-					}
-					if (durationValue) {
-						durationValue.textContent =  formatDuration(durationMs);
-					}
-					if (subtaskValue) {
-						subtaskValue.textContent = subtaskCount;
-					}
-					if (currentSubtaskBox) {
-						currentSubtaskBox.style.display = firstSubtask ? "flex" : "none";
-					}
-
-					updateSelectedSubtaskDuration(selectedSubtask || firstSubtask);
-					updateQuestionText(activeTextTask);
-					updateAlternatives(activeTextTask);
-					updateOptionMarkers(activeTextTask ? activeTextTask.selectedAlternative : null);
-					updateSelector(subtasks, selectedSubtask);
-				}
-			},
-			default: {
+				,
+				default: {
 				gridStyles: {
 					gridTemplateColumns: "248px 292px 225px",
 					gridAutoRows: "minmax(54px, 1fr)"
 				},
-				buildContent: function(grid) {
-					createBoxTemplate(grid, {
-						className: "task-info-duration",
-						styles: { gridColumn: "1", gridRow: "1" },
-						elements: [
-							{ className: "task-info-value", styles: baseValueStyles },
-							{ className: "task-info-label", text: "ERRO", styles: baseLabelStyles }
-						]
-					});
-				},
-				updateContent: function(context) {
-					// placeholder for default popup updates
+					buildContent: function(grid) {
+						createBoxTemplate(grid, {
+							className: "task-info-duration",
+							styles: { gridColumn: "1", gridRow: "1" },
+							elements: [
+								{ className: "task-info-value", styles: baseValueStyles },
+								{ className: "task-info-label", text: "Tempo total", styles: baseLabelStyles }
+							]
+						});
+					},
+					updateContent: function(context) {
+						var task = context.task || null;
+						var baseTask = context.baseTask || getBaseTask(task);
+						var start = baseTask && baseTask.startDate ? baseTask.startDate : null;
+						var end = baseTask && baseTask.endDate ? baseTask.endDate : null;
+						var durationMs = start && end ? Math.max(0, end - start) : 0;
+
+						var title = infoModal.querySelector(".task-info-title");
+						var durationValue = infoModal.querySelector(".task-info-duration .task-info-value");
+						if (title) {
+							title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : "";
+						}
+						if (durationValue) {
+							durationValue.textContent = formatDuration(durationMs);
+						}
+					}
 				}
-			}
 		};
 	}
 
@@ -685,27 +600,7 @@ function createInfoModal(deps) {
 	// and does not participate in the document flow.
 	function definePopupTotalSize() {
 		if (!infoModal) return;
-		var sizePercent = 80;
-		var insetW = (100 - sizePercent) / 2;
-		var insetH = (100 - sizePercent) / 2;
-		infoModal.style.setProperty("left", insetW + "vw");
-		infoModal.style.setProperty("right", insetW + "vw");
-		infoModal.style.setProperty("top", insetH + "vh");
-		infoModal.style.setProperty("bottom", insetH + "vh");
-		infoModal.style.setProperty("box-sizing", "border-box");
-	}
-
-	// Bind a single resize listener that only recomputes layout when visible.
-	// This keeps the popup responsive without doing unnecessary work while hidden.
-	function addResizeListener() {
-		if (resizeBound) return;
-		resizeBound = true;
-		window.addEventListener("resize", function() {
-			if (!infoModal) return;
-			if (infoModal.style.display === "block") {
-				ResizePopup();
-			}
-		});
+		applyPopupViewportInset(infoModal, 80);
 	}
 
 	// Handle dropdown changes by looking up the selected subtask.
@@ -727,16 +622,7 @@ function createInfoModal(deps) {
 	// This makes repeated calls to createPopupDOM() safe and prevents
 	// multiple listeners stacking up across opens.
 	function addButtonListeners() {
-		if (!infoModal || !infoBackdrop) return;
-		var closeButton = infoModal.querySelector(".task-info-close");
-		if (closeButton && !closeButton.__bound) {
-			closeButton.addEventListener("click", hideInfoTooltip);
-			closeButton.__bound = true;
-		}
-		if (!infoBackdrop.__bound) {
-			infoBackdrop.addEventListener("click", hideInfoTooltip);
-			infoBackdrop.__bound = true;
-		}
+		if (!infoModal) return;
 		var select = infoModal.querySelector(".task-info-subtask-select");
 		if (select && !select.__bound) {
 			select.addEventListener("change", onSubtaskChange);
@@ -753,37 +639,7 @@ function createInfoModal(deps) {
 		var template = templates[selectedKey];
 		var grid = null;
 
-		if (!infoModal) {
-			var existingModal = doc.querySelector(".task-info-modal");
-			if (existingModal) {
-				infoModal = existingModal;
-			}
-		}
-		if (!infoBackdrop) {
-			var existingBackdrop = doc.querySelector(".task-info-backdrop");
-			if (existingBackdrop) {
-				infoBackdrop = existingBackdrop;
-			}
-		}
-
-		if (!infoModal || !infoBackdrop) {
-			grid = buildPopupShell();
-		} else {
-			var hasTitle = infoModal.querySelector(".task-info-title");
-			var hasClose = infoModal.querySelector(".task-info-close");
-			grid = infoModal.querySelector(".task-info-grid");
-			if (!hasTitle || !hasClose || !grid) {
-				if (infoModal.parentNode) {
-					infoModal.parentNode.removeChild(infoModal);
-				}
-				if (infoBackdrop.parentNode) {
-					infoBackdrop.parentNode.removeChild(infoBackdrop);
-				}
-				infoModal = null;
-				infoBackdrop = null;
-				grid = buildPopupShell();
-			}
-		}
+		grid = ensurePopupShellDom();
 
 		if (grid) {
 			var gridExtras = (template && template.gridStyles) ? template.gridStyles : null;
@@ -797,7 +653,6 @@ function createInfoModal(deps) {
 			template.buildContent(grid);
 		}
 		addButtonListeners();
-		addResizeListener();
 		definePopupTotalSize();
 	}
 
@@ -816,14 +671,17 @@ function createInfoModal(deps) {
 		return totalMinutes + " minutos e " + seconds + " segundos";
 	}
 
-	// Count nested subtasks to show dialog totals.
-	// We walk the full tree so the count reflects every nested dialog, not just
-	// the immediate children of a task. This matches how users expect totals to work.
+	// Count nested dialog tasks to show dialog totals.
+	// We walk the full tree so deeply nested dialogs are included, but we ignore
+	// non-dialog descendants such as PARTES.
 	function countSubtasks(task) {
 		var list = getSubtaskList(task);
 		if (!list.length) return 0;
-		var count = list.length;
+		var count = 0;
 		list.forEach(function(subtask) {
+			if (subtask && subtask.status === "DIALOGO") {
+				count += 1;
+			}
 			count += countSubtasks(subtask);
 		});
 		return count;
@@ -945,39 +803,17 @@ function createInfoModal(deps) {
 		if (!infoModal) return;
 		var grid = infoModal.querySelector(".task-info-grid");
 		if (!grid) return;
-		var modalWidth = infoModal.clientWidth;
-		if (!modalWidth) return;
 
-		var base = {
-			left: 248,
-			center: 292,
-			right: 225,
-			gap: 40,
-			padX: 30,
-			padTop: 9,
-			padBottom: 30
-		};
+		var computed = win.getComputedStyle ? win.getComputedStyle(grid) : null;
+		var padTop = computed ? (parseFloat(computed.paddingTop) || 0) : 0;
+		var padBottom = computed ? (parseFloat(computed.paddingBottom) || 0) : 0;
 
-		var required = base.left + base.center + base.right + (base.gap * 2) + (base.padX * 2);
-		var scale = modalWidth / required;
-		var left = Math.max(120, Math.floor(base.left * scale));
-		var center = Math.max(160, Math.floor(base.center * scale));
-		var right = Math.max(120, Math.floor(base.right * scale));
-		var gap = Math.max(12, Math.floor(base.gap * scale));
-		var padX = Math.max(12, Math.floor(base.padX * scale));
-		var padTop = Math.max(6, Math.floor(base.padTop * scale));
-		var padBottom = Math.max(12, Math.floor(base.padBottom * scale));
-
-		grid.style.gridTemplateColumns = left + "px " + center + "px " + right + "px";
-		grid.style.columnGap = gap + "px";
-		grid.style.padding = padTop + "px " + padX + "px " + padBottom + "px";
-
-		var title = infoModal.querySelector(".task-info-title");
-		var titleHeight = title ? title.offsetHeight : 0;
-		var availableHeight = Math.max(0, infoModal.clientHeight - titleHeight - (padTop + padBottom));
-		if (availableHeight) {
-			grid.style.height = availableHeight + "px";
-		}
+		fitPopupGridHeight(infoModal, {
+			gridSelector: ".task-info-grid",
+			titleSelector: ".task-info-title",
+			padTop: padTop,
+			padBottom: padBottom
+		});
 	}
 
 	// Display the popup for a task and fill all the data fields.
@@ -988,6 +824,12 @@ function createInfoModal(deps) {
 	// funcao principal, ela chama todas as outras, garante a criacao/remocao da invisibilidade do popup
 	// e preenche todas as boxes
 	function showInfoTooltip(task) {
+		var storylinesPayload = buildStorylinesPayload(task);
+		if (storylinesPayload && storylinesInfoModal && storylinesInfoModal.showInfoTooltip) {
+			storylinesInfoModal.showInfoTooltip(storylinesPayload);
+			return;
+		}
+
 		var templateKey = getPopupTemplateKey(task);
 		createPopupDOM(templateKey);
 		if (!infoModal || !infoBackdrop) return;
@@ -1006,6 +848,9 @@ function createInfoModal(deps) {
 	// We keep the DOM alive so re-opening is instant and doesn't recreate a large
 	// grid of elements or rebind event listeners.
 	function hideInfoTooltip() {
+		if (storylinesInfoModal && storylinesInfoModal.hideInfoTooltip) {
+			storylinesInfoModal.hideInfoTooltip();
+		}
 		if (infoModal) {
 			infoModal.style.display = "none";
 		}
@@ -1015,6 +860,7 @@ function createInfoModal(deps) {
 	}
 
 	return {
-		showInfoTooltip: showInfoTooltip
+		showInfoTooltip: showInfoTooltip,
+		hideInfoTooltip: hideInfoTooltip
 	};
 }
