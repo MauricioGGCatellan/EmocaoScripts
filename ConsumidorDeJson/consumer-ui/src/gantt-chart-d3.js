@@ -1,7 +1,16 @@
 /**
  * @author Dimitry Kudrayvtsev
  * @version 2.1
- */ 
+ */
+
+import { createInfoModal } from "./gantt/popup.js";
+import { createLinksLayerManager } from "./gantt/links.js";
+import { createAxisManager } from "./gantt/axes.js";
+import { updateSubGantts } from "./gantt/subcharts.js";
+import { getCurrentYRatioRangeFromState } from "./shared/zoom-core.js";
+import { createZoomManager } from "./shared/zoom-manager.js";
+import { createIconTooltipManager } from "./shared/icon-tooltip.js";
+import { ensureExpansionToggleDescription } from "./popup-shell.js";
 
 d3.gantt = function() {
     // Factory function: each call to d3.gantt() creates an isolated chart instance.
@@ -18,14 +27,14 @@ d3.gantt = function() {
 	left : 150
     };
     var selector = 'body';
-
+    var timeDomainStart = d3.time.day.offset(new Date(),-3);
+    var timeDomainEnd = d3.time.hour.offset(new Date(),+3);
     var fixedTimeDomainStart = new Date(+timeDomainStart);
     var fixedTimeDomainEnd = new Date(+timeDomainEnd);
     // timeDomainMode controls whether we compute bounds from data (fit) or use a fixed range.
     // We default to FIT so a basic chart "just works" without explicit domain settings.
     var timeDomainMode = FIT_TIME_DOMAIN_MODE;
     var taskTypes = [];
-    var taskStatus = {};
     var taskStatus = [];
 	var currentTasks = [];
     
@@ -69,6 +78,7 @@ d3.gantt = function() {
 	var currentUserInfo = null;
 	
 
+	var tickFormat = "%H:%M";
 	var xAxisTickValues = null;
 	var yAxisLabelFormatter = null;
 	var axisLabelsEnabled = true;
