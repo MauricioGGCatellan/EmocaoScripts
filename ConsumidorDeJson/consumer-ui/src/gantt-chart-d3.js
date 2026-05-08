@@ -1,16 +1,7 @@
 /**
  * @author Dimitry Kudrayvtsev
  * @version 2.1
- */
-
-import { createInfoModal } from "./gantt/popup.js";
-import { createLinksLayerManager } from "./gantt/links.js";
-import { createAxisManager } from "./gantt/axes.js";
-import { updateSubGantts } from "./gantt/subcharts.js";
-import { getCurrentYRatioRangeFromState } from "./shared/zoom-core.js";
-import { createZoomManager } from "./shared/zoom-manager.js";
-import { createIconTooltipManager } from "./shared/icon-tooltip.js";
-import { ensureExpansionToggleDescription } from "./popup-shell.js";
+ */ 
 
 d3.gantt = function() {
     // Factory function: each call to d3.gantt() creates an isolated chart instance.
@@ -27,15 +18,17 @@ d3.gantt = function() {
 	left : 150
     };
     var selector = 'body';
-    var timeDomainStart = d3.time.day.offset(new Date(),-3);
-    var timeDomainEnd = d3.time.hour.offset(new Date(),+3);
     var fixedTimeDomainStart = new Date(+timeDomainStart);
     var fixedTimeDomainEnd = new Date(+timeDomainEnd);
+	var now = new Date();
+
+	var timeDomainStart = d3.time.day.offset(d3.time.day.floor(now), -3);
+	var timeDomainEnd   = d3.time.hour.offset(now, +3);
     // timeDomainMode controls whether we compute bounds from data (fit) or use a fixed range.
     // We default to FIT so a basic chart "just works" without explicit domain settings.
     var timeDomainMode = FIT_TIME_DOMAIN_MODE;
     var taskTypes = [];
-    var taskStatus = [];
+    var taskStatus = {};
 	var currentTasks = [];
     
     var height = (document.body.clientHeight) - margin.top - margin.bottom-5;
@@ -78,13 +71,13 @@ d3.gantt = function() {
 	var currentUserInfo = null;
 	
 
-	var tickFormat = "%H:%M";
 	var xAxisTickValues = null;
 	var yAxisLabelFormatter = null;
 	var axisLabelsEnabled = true;
 	var axisLinesEnabled = true;
 	var subchartAxisLabelsEnabled = true;
 	var subchartAxisLinesEnabled = true;
+	var tickFormat = "%M:%S";
 	var transitionDuration = 250;
 	var chartLines = false;
 	var subchartLines = false;
@@ -152,6 +145,7 @@ d3.gantt = function() {
 
 	function refreshBarClassOrder() {
 		barClassOrder = [];
+		 
 		if (taskStatus) {
 			Object.keys(taskStatus).forEach(function(key) {
 				var className = taskStatus[key];
@@ -162,170 +156,15 @@ d3.gantt = function() {
 		}
 	}
 
-	function normalizeStatusKey(value) {
-		return String(value || "").trim().toUpperCase();
-	}
-
-	function isUnusedStatusKey(value) {
-		return normalizeStatusKey(value).indexOf("UNUSED_") === 0;
-	}
-
-	function getBarClassForStatus(status) {
-		var rawStatus = String(status || "");
-		if (taskStatus && taskStatus[rawStatus]) {
-			return taskStatus[rawStatus];
-		}
-		var normalized = normalizeStatusKey(rawStatus);
-		if (!normalized || !taskStatus) {
-			return "bar";
-		}
-		var statusKeys = Object.keys(taskStatus);
-		for (var i = 0; i < statusKeys.length; i++) {
-			var key = statusKeys[i];
-			if (normalizeStatusKey(key) === normalized) {
-				return taskStatus[key];
-			}
+	function getBaseBarClass(d) { 
+		if (d && taskStatus && taskStatus[d.status]) {  
+			return taskStatus[d.status];
 		}
 		return "bar";
 	}
 
-	function getBaseBarClass(d) {
-		if (d && d.__parentTask && normalizeStatusKey(d.status) === "DIALOGO") {
-			var parentBaseClass = getExpandedBackdropBaseClass(d.__parentTask) || getBaseBarClass(d.__parentTask);
-			if (parentBaseClass === "bar-purple") {
-				return "bar-purple";
-			}
-			if (parentBaseClass === "bar-green") {
-				return hasDialogInteraction(d) ? "bar-green" : "bar-purple";
-			}
-		}
-		// Prefer the task's own semantic status when available so expanded
-		// subtasks keep their texture/palette. Only fall back to the parent
-		// color for legacy rows that do not expose a mapped status.
-		if (d) {
-			var ownClass = getBarClassForStatus(d.status);
-			if (ownClass && ownClass !== "bar") {
-				return ownClass;
-			}
-		}
-		if (d && d.__parentTask && !hasOutcomeMetadata(d)) {
-			var parentClass = getBaseBarClass(d.__parentTask);
-			if (parentClass && parentClass !== "bar") {
-				return parentClass;
-			}
-		}
-		return "bar";
-	}
-
-	function getSemanticBaseColor(baseClass) {
-		var colorByClass = {
-			"bar-purple": "#aa4499",
-			"bar-green": "#44aa99",
-			"bar-yellow": "#ddcc77"
-		};
-		return colorByClass[baseClass] || null;
-	}
-
-	function getSemanticContrastColor(baseClass) {
-		var colorByClass = {
-			"bar-purple": "#aa4499",
-			"bar-green": "#44aa99",
-			"bar-yellow": "#ddcc77"
-		};
-		return colorByClass[baseClass] || null;
-	}
-
-	function hasDialogInteraction(task) {
-		return !!task &&
-			normalizeStatusKey(task.status) === "DIALOGO" &&
-			Array.isArray(task.alternatives) &&
-			task.alternatives.length > 0 &&
-			typeof task.selectedAlternative === "number";
-	}
-
-	function getOutcomeCorrectList(task) {
-		if (!task) return [];
-		var raw = Array.isArray(task.correctAlternative)
-			? task.correctAlternative
-			: [ task.correctAlternative ];
-		var filtered = raw.filter(function(value) {
-			return typeof value === "number" && isFinite(value);
-		});
-		// Datasets legacy: when there is selectedAlternative but no explicit
-		// correctAlternative in PERGUNTA rows, treat option 0 as canonical "correct".
-		if (
-			!filtered.length &&
-			normalizeStatusKey(task.status) === "PERGUNTA" &&
-			typeof task.selectedAlternative === "number"
-		) {
-			return [ 0 ];
-		}
-		return filtered;
-	}
-
-	function hasExplicitCorrectAlternative(task) {
-		if (!task) return false;
-		var raw = Array.isArray(task.correctAlternative)
-			? task.correctAlternative
-			: [ task.correctAlternative ];
-		return raw.some(function(value) {
-			return typeof value === "number" && isFinite(value);
-		});
-	}
-
-	function hasOutcomeMetadata(task) {
-		return !!task && (
-			hasExplicitCorrectAlternative(task) ||
-			(
-				normalizeStatusKey(task.status) === "PERGUNTA" &&
-				typeof task.selectedAlternative === "number"
-			)
-		);
-	}
-
-	function inheritsParentSemanticColor(task) {
-		if (!task || !task.__parentTask || task.status === "PERGUNTA") {
-			return false;
-		}
-		var ownClass = getBarClassForStatus(task.status);
-		var resolvedClass = getBaseBarClass(task);
-		return !!ownClass && ownClass !== resolvedClass;
-	}
-
-	function shouldUseExpandedBackdrop(task) {
-		var normalizedStatus = normalizeStatusKey(task && task.status);
-		return !!task &&
-			!!task.expanded &&
-			Array.isArray(task.subtasks) &&
-			task.subtasks.length > 0 &&
-			(
-				normalizedStatus === "CENA" ||
-				normalizedStatus === "QUIZ"
-			);
-	}
-
-	function getExpandedBackdropBaseClass(task) {
-		if (!shouldUseExpandedBackdrop(task)) {
-			return null;
-		}
-		return getBaseBarClass(task);
-	}
-
-	function getExpandedBackdropPatternId(baseClass) {
-		if (baseClass === "bar-purple") {
-			return expandedPurpleBackdropPatternId;
-		}
-		if (baseClass === "bar-green") {
-			return expandedGreenBackdropPatternId;
-		}
-		if (baseClass === "bar-yellow") {
-			return expandedYellowBackdropPatternId;
-		}
-		return null;
-	}
-
-	function getConditionalBarClass(d) {
-		if (!d || !hasOutcomeMetadata(d)) {
+	function getConditionalBarClass(d) {  
+		if (!d || d.status !== "PERGUNTA") { 
 			return "";
 		}
 		var hasSelected = typeof d.selectedAlternative === "number";
@@ -377,7 +216,7 @@ d3.gantt = function() {
 
 	function getBarFill(d) {
 		var conditionalClass = getConditionalBarClass(d);
-		if (conditionalClass) {
+		if (!conditionalClass) {
 			return null;
 		}
 		var expandedBackdropBaseClass = getExpandedBackdropBaseClass(d);
@@ -545,21 +384,6 @@ d3.gantt = function() {
 
 	function getBarColor(d) {
 		var baseClass = getBaseBarClass(d);
-		return getBarColorByClass(baseClass);
-	}
-
-	function getBarColorByClass(baseClass) {
-		var colorByClass = {
-			"bar-purple": getSemanticBaseColor("bar-purple"),
-			"bar-green": getSemanticBaseColor("bar-green"),
-			"bar-yellow": getSemanticBaseColor("bar-yellow"),
-			"bar-pergunta-correct": "#117733",
-			"bar-pergunta-wrong": "#882255",
-			"bar-pergunta-unanswered": getSemanticBaseColor("bar-yellow")
-		};
-		if (colorByClass[baseClass]) {
-			return colorByClass[baseClass];
-		}
 		var baseIndex = barClassOrder.indexOf(baseClass);
 		if (baseIndex < 0) {
 			baseIndex = 0;
@@ -819,6 +643,7 @@ d3.gantt = function() {
 		// Translate each task group to its x/y position.
 		// Using a group transform keeps the bar, icon, and subchart
 		// aligned as one unit, and makes transitions simpler.
+  
 		var xPos = (d && typeof d.x === "number") ? d.x : xScale(d.startDate);
 		var yPos = (d && typeof d.y === "number") ? d.y : (renderRowLayout[d.taskName] ? renderRowLayout[d.taskName].y : 0);
 		return "translate(" + xPos + "," + yPos + ")";
@@ -857,9 +682,7 @@ d3.gantt = function() {
 	}
 
 	refreshBarClassOrder();
-
-    var xScale = d3.time.scale().domain([ timeDomainStart, timeDomainEnd ]).range([ 0, width ]).clamp(true);
-
+    var xScale = d3.time.scale().domain([ timeDomainStart, timeDomainEnd ]).range([ 0, width ]).clamp(true); 
 	// the y axis is not used anymore, rowLayout deals with it
     //var y = d3.scale.ordinal().domain(taskTypes).rangeRoundBands([ 0, height - margin.top - margin.bottom ], .1);
 
@@ -950,10 +773,31 @@ d3.gantt = function() {
 
     var setTimeDomain = function(tasks) {
 		var baseDomain;
+		// Compute or preserve the visible time range.
+		// In "fit" mode, we derive bounds from the earliest start and latest end.
+		// In "fixed" mode, we keep whatever the caller previously set.
+		// The optional focus zoom (when distortion is off) enlarges a single
+		// expanded task for readability.
+
+		timeDomainStart = d3.time.day.offset(new Date(),-3);
+    	timeDomainEnd = d3.time.hour.offset(new Date(),+3);
 		if (timeDomainMode === FIT_TIME_DOMAIN_MODE) {
 			baseDomain = computeFitTimeBounds(tasks);
 		} else {
 			baseDomain = [ fixedTimeDomainStart, fixedTimeDomainEnd ];
+			if (tasks === undefined || tasks.length < 1) {
+				timeDomainStart = d3.time.day.offset(new Date(), -3);
+				timeDomainEnd = d3.time.hour.offset(new Date(), +3);
+				return;
+			}
+			tasks.sort(function(a, b) {	
+				return +a.endDate - +b.endDate;
+			});
+			timeDomainEnd = tasks[tasks.length - 1].endDate;
+			tasks.sort(function(a, b) {
+				return +a.startDate - +b.startDate;
+			});
+			timeDomainStart = tasks[0].startDate; 
 		}
 		timeDomainStart = baseDomain[0];
 		timeDomainEnd = baseDomain[1];
@@ -974,7 +818,7 @@ d3.gantt = function() {
 			}
 			var targetSpan = duration / Math.max(0.0001, targetRatio);
 			timeDomainStart = new Date(mid - targetSpan / 2);
-			timeDomainEnd = new Date(mid + targetSpan / 2);
+			timeDomainEnd = new Date(mid + targetSpan / 2); 
 		}
     };
 
@@ -995,7 +839,7 @@ d3.gantt = function() {
 		// Calculate vertical layout for each row.
 		// We distribute the available height across rows, giving expanded
 		// rows extra space so their subcharts are usable.
-		// The result is stored in rowLayout for reuse by bars, icons, and axes.
+		// The result is stored in rowLayout for reuse by bars, icons, and axes. 
 		rowLayout = {};
 		var layoutTypes = visibleTaskTypes && visibleTaskTypes.length ? visibleTaskTypes : taskTypes;
 		var rows = layoutTypes.length || (tasks ? tasks.length : 0);
@@ -1026,9 +870,8 @@ d3.gantt = function() {
 		var collapsedH = collapsedCount > 0 ? remaining / collapsedCount :
 			(expandedCount > 0 ? expandedH : (rows > 0 ? usable / rows : 0));
 
-		// Enforce min height.
-		// If min heights already overflow available space, keep them as-is
-		// instead of shrinking below the configured minimum.
+		// Enforce min height, then renormalize to keep total height constant.
+		// This prevents rows from becoming unusably thin while preserving total layout height.
 		expandedH = Math.max(minRowHeight, expandedH);
 		collapsedH = Math.max(minRowHeight, collapsedH);
 		var totalH = expandedH * expandedCount + collapsedH * collapsedCount;
@@ -1061,7 +904,6 @@ d3.gantt = function() {
 		if (!zoomState) {
 			yScale.domain([ 0, totalChartHeight ]).range([ 0, totalChartHeight ]);
 			renderRowLayout = rowLayout;
-			renderTaskTypes = taskTypes.slice();
 			return;
 		}
 		var ratioRange = getCurrentYRatioRange();
@@ -1240,6 +1082,10 @@ d3.gantt = function() {
 		return current || task;
 	}
 
+	function getAllStatus(){
+		return taskStatus;
+	}
+
 	// Wire up modal helper now that core helpers exist.
 	// The modal stays outside the SVG so layout is handled by normal DOM flow.
 	modal = createInfoModal({
@@ -1251,6 +1097,7 @@ d3.gantt = function() {
 		getCurrentUser: function() {
 			return currentUserInfo;
 		}
+		getAllStatus: getAllStatus
 	});
 
 	// Collapse all tasks in the given list except the target (operates within one chart level).
@@ -1398,6 +1245,7 @@ d3.gantt = function() {
 		rootSvg
 			.attr("width", width + margin.left + margin.right)
 			.attr("height", getChartHeight());
+			.attr("height", getChartHeight() + 5);
 
 		ganttChartGroup
 			.attr("transform", "translate(" + margin.left + ", " + margin.top + ")");
@@ -1646,7 +1494,7 @@ d3.gantt = function() {
 		// Convert raw task data into render-ready bar objects.
 		// This precomputes x/y/width/height, visibility, and subchart layout
 		// so the render layer only reads values (no heavy computation).
-		var barData = [];
+		var barData = []; 
 		tasks.forEach(function(task) {
 			var row = renderRowLayout[task.taskName];
 			var rawXStart = xScale(task.startDate);
@@ -1669,6 +1517,8 @@ d3.gantt = function() {
 			var barY = yStart + appliedBarInset;
 			var barHeight = Math.max(0, heightValue - (appliedBarInset * 2));
 
+			var widthValue = Math.max(0, xEnd - xStart);
+			var heightValue = row ? row.height : 0;
 			var visible = !!row &&
 				barHeight > 0 &&
 				rawXEnd > 0 &&
@@ -2141,23 +1991,26 @@ d3.gantt = function() {
 	// Public chart API
 	// ---------------------------------------------------------------------------
 
-	function gantt(tasks, renderOptions) {
+	function gantt(selection) {
 		// Primary entry point: render with the current configuration.
 		// We keep this thin so the core logic stays in updateChart().
-		return updateChart(tasks, renderOptions);
+		selection.each(function(data) { 
+			
+			return updateChart(data);
+		})
     };
 
     // Update render: reuse SVG, apply transitions, and keep subcharts in sync.
-    gantt.redraw = function(tasks, renderOptions) {
+    gantt.redraw = function(tasks) {
 		// Public redraw API used after interactions (expand/collapse, resize, etc.).
 		// It intentionally delegates to updateChart() so the render path stays unified.
-		return updateChart(tasks, renderOptions);
+		return updateChart(tasks);
     };
 
     // Chainable setters/getters for configuration.
 	// These follow the standard D3 pattern: call with no args to read,
 	// call with a value to set and return the chart for chaining.
-	gantt.margin = function(value) {
+    gantt.margin = function(value) {
 		if (!arguments.length)
 			return margin;
 		margin = value;
@@ -2210,6 +2063,7 @@ d3.gantt = function() {
 			return taskStatus;
 		taskStatus = value;
 		refreshBarClassOrder();
+ 
 		return gantt;
     };
 

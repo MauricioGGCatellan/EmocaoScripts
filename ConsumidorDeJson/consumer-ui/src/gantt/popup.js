@@ -1,15 +1,3 @@
-import {
-	applyPopupViewportInset,
-	bindPopupShellEvents,
-	createEl as createPopupEl,
-	ensureDropdownDescription,
-	ensurePopupShell,
-	fitPopupGridHeight,
-	mergeStyles,
-	setStyles
-} from "../popup-shell.js";
-import { createStorylinesInfoModal } from "../storylines/popup.js";
-
 // Popup factory that returns a small, focused API for the chart.
 // We keep construction and update logic inside this module so the chart only
 // needs to call showInfoTooltip(task) without worrying about DOM details.
@@ -325,6 +313,14 @@ export function createInfoModal(deps) {
 			return "cena";
 		}
 		return "cena";
+
+		const emocoes = ['fear', 'sad','happy', 'disgust', 'surprise', 'angry', 'neutral']
+		const emocoesPt = ['medo', 'triste', 'feliz', 'nojo', 'surpresa', 'raiva', 'neutro']
+		if(target && (emocoes.includes(target.status) || emocoesPt.includes(target.status))){
+			return "emocao";
+		}
+
+		return "default";
 	}
 
 	function ensurePopupShellDom() {
@@ -336,6 +332,40 @@ export function createInfoModal(deps) {
 			titleClass: "popup-title task-info-title",
 			bodyClass: "popup-grid task-info-grid",
 			closeText: "X"
+	function buildPopupShell() {
+		infoBackdrop = createEl("div", "task-info-backdrop");
+		setStyles(infoBackdrop, {
+			position: "fixed",
+			left: "0",
+			top: "0",
+			width: "100%",
+			height: "100%",
+			background: "rgba(0, 0, 0, 0.35)",
+			display: "none",
+			zIndex: 999
+		});
+		doc.body.appendChild(infoBackdrop);
+
+		infoModal = createEl("div", "task-info-modal");
+		setStyles(infoModal, {
+			position: "fixed",
+			display: "none",
+			left: "10vw",
+			top: "10vh",
+			width: "80vw",
+			height: "80vh",
+			maxWidth: "none",
+			maxHeight: "none",
+			boxSizing: "border-box",
+			padding: "20px",
+			background: "#ffffff",
+			border: "2px solid rgba(0, 0, 0, 0.25)",
+			borderRadius: "16px",
+			boxShadow: "0 10px 30px rgba(0, 0, 0, 0.35)",
+			font: "22px Arial, sans-serif",
+			color: "#1a1a1a",
+			textAlign: "center",
+			zIndex: 1000
 		});
 		infoBackdrop = shell.backdrop;
 		infoModal = shell.modal;
@@ -344,8 +374,35 @@ export function createInfoModal(deps) {
 			window: win,
 			onClose: hideInfoTooltip,
 			onResizeVisible: ResizePopup
+		doc.body.appendChild(infoModal);
+
+		var closeButton = createEl("button", "task-info-close", "X");
+		closeButton.type = "button";
+		setStyles(closeButton, {
+			position: "absolute",
+			top: "10px",
+			right: "12px",
+			background: "transparent",
+			border: "none",
+			font: "18px Arial, sans-serif",
+			color: "#000000",
+			cursor: "pointer"
 		});
 		return shell.body;
+		infoModal.appendChild(closeButton);
+
+		var title = createEl("div", "task-info-title");
+		setStyles(title, {
+			padding: "8px 40px 4px",
+			fontWeight: "bold",
+			textAlign: "center"
+		});
+		infoModal.appendChild(title);
+
+		var grid = createEl("div", "task-info-grid");
+		infoModal.appendChild(grid);
+
+		return grid;
 	}
 
 	function getPopupTemplates() {
@@ -555,10 +612,273 @@ export function createInfoModal(deps) {
 						if (subtaskValue) {
 							subtaskValue.textContent = subtaskCount;
 						}
+				},
+				updateContent: function(context) {
+					// placeholder for minigame-specific updates
+
+
+				}
+			}
+			,
+			emocao: {
+				gridStyles: {
+					gridTemplateRows: "repeat(6, minmax(54px, max-content))"
+				},
+				buildContent: function(grid) {
+					// INSERT HERE: add new box templates for the "cena" popup.
+					// Box template fields:
+					// - className: extra class(es) for the box container
+					// - styles: inline style overrides for the box
+					// - elements: array of child definitions:
+					//   - tag: element tag name (defaults to "div")
+					//   - className: class(es) for the child
+					//   - text: textContent for the child
+					//   - styles: inline styles for the child
+					//   - attrs: attributes map (e.g., { "data-id": "..." })
+					createBoxTemplate(grid, {
+						className: "task-info-duration",
+						styles: {
+							gridColumn: "1",
+							gridRow: "1"
+						},
+						elements: [
+							{ className: "task-info-value", styles: baseValueStyles },
+							{ className: "task-info-label", text: "Tempo total", styles: baseLabelStyles }
+						]
+					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-current-subtask",
+						styles: {
+							gridColumn: "2",
+							gridRow: "1",
+							justifySelf: "stretch",
+							alignSelf: "stretch",
+							display: "none"
+						},
+						elements: [
+							{ className: "task-info-value", styles: baseValueStyles },
+							{ className: "task-info-label", text: "Tempo de permanencia no dialogo", styles: baseLabelStyles }
+						]
+					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-subtask-selector",
+						styles: {
+							gridColumn: "3",
+							gridRow: "1",
+							justifySelf: "stretch",
+							padding: "11px 14px",
+							display: "none",
+							alignItems: "stretch",
+							gap: "8px"
+						},
+						elements: [
+							{ className: "task-info-label", text: "Selecionar dialogo", styles: baseLabelStyles },
+							{
+								tag: "select",
+								className: "task-info-subtask-select",
+								styles: {
+									width: "100%",
+									padding: "7px 9px",
+									borderRadius: "8px",
+									border: "1px solid rgba(0, 0, 0, 0.2)",
+									font: "16px Arial, sans-serif"
+								}
+							}
+						]
+					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-subtasks",
+						styles: {
+							gridColumn: "2",
+							gridRow: "2"
+						},
+						elements: [
+							{ className: "task-info-value", styles: baseValueStyles },
+							{ className: "task-info-label", text: "Dialogos", styles: baseLabelStyles }
+						]
+					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-question",
+						styles: {
+							gridColumn: "1",
+							gridRow: "2",
+							background: "#f6d84a"
+						},
+						elements: [
+							{ className: "task-info-question-title", text: "Todas as emoções:", styles: mergeStyles(baseLabelStyles, { color: "rgba(0, 0, 0, 0.7)" }) },
+							{ className: "task-info-question-text", styles: mergeStyles(baseBodyStyles, { marginTop: "4px" }) }
+						]
+					});
+
+					createBoxTemplate(grid, {
+						className: "task-info-status",
+						styles: {
+							gridColumn: "2 / span 2",
+							gridRow: "6",
+							justifySelf: "stretch",
+							alignSelf: "stretch"
+						},
+						elements: [
+							{ className: "task-info-value", styles: baseValueStyles },
+							{ className: "task-info-label", text: "Status", styles: baseLabelStyles }
+						]
+					});
+ 
+					
+					createBoxTemplate(grid, { 
+						className: "task-info-status-text", 
+						styles: mergeStyles(baseBodyStyles, { 
+							gridColumn: "1",
+							gridRow: "3", 
+							gap: "6px",
+							width: "100%", 
+							display: "flex",
+							flexWrap: "wrap",
+							flexDirection: "row",	
+							minHeight: 0,
+							backgroundColor: "white",
+							borderColor: "white"
+						}) 
+					}); 
+
+					var imageBox = createEl("div", "task-info-box task-info-image", "");
+					//emoImages
+					setStyles(imageBox, {
+						gridColumn: "2 / span 2",
+						gridRow: "3 / span 3",
+
+						alignSelf: "start",
+						justifySelf: "start" ,
+						width: "100%",
+						boxSizing: "border-box",
+						//height: "100%", 
+						//minHeight: "200px",
+						maxHeight: "200px", 
+						padding: "14px",
+						border: "2px dashed rgba(0, 0, 0, 0.2)",
+						borderRadius: "12px",
+						background: "rgba(0, 0, 0, 0.02)",
+						display: "inline-flex",
+						alignItems: "center",
+						justifyContent: "center",
+						textAlign: "center",
+						color: "rgba(0, 0, 0, 0.45)",
+						font: "14px Arial, sans-serif"
+					});
+
+				var img = createEl("img", "task-info-image-content");
+
+				setStyles(img, {
+					maxWidth: "100%",
+					maxHeight: "190px",
+					width: "auto",
+					height: "auto",
+					objectFit: "contain",
+					borderRadius: "8px"
+				});
+
+				imageBox.appendChild(img);
+				grid.appendChild(imageBox);
+					grid.appendChild(imageBox);
+				},
+				updateContent: function(context) {
+					// placeholder for default popup updates
+					
+					var task = context.task || null;
+					var selectedSubtask = context.selectedSubtask || (task && task.__parentTask ? task : null);
+					var baseTask = context.baseTask || getBaseTask(task);
+					var start = baseTask && baseTask.startDate ? baseTask.startDate : null;
+					var end = baseTask && baseTask.endDate ? baseTask.endDate : null;
+					var durationMs = start && end ? Math.max(0, end - start) : 0;
+					var subtaskCount = countSubtasks(baseTask);
+					var subtasks = getSubtaskList(baseTask);
+					var firstSubtask = subtasks.length ? subtasks[0] : null;
+					var activeTextTask = selectedSubtask || firstSubtask || baseTask;
+
+					currentBaseTask = baseTask;
+
+					var title = infoModal.querySelector(".task-info-title");
+					var durationValue = infoModal.querySelector(".task-info-duration .task-info-value");
+					var subtaskValue = infoModal.querySelector(".task-info-subtasks .task-info-value");
+					var currentSubtaskBox = infoModal.querySelector(".task-info-current-subtask");
+					var statusValue = infoModal.querySelector(".task-info-status .task-info-value");
+					var emotionsContainer  = infoModal.querySelector(".task-info-status-text");
+					var imageContainer = infoModal.querySelector(".task-info-image-content")
+					let emotionsObj = getAllStatus(); 
+					const emotionTranslations = {
+						"fear": "medo",
+						"sad": "triste",
+						"neutral": "neutro",
+						"happy": "feliz",
+						"surprise": "surpresa",
+						"disgust": "nojo",
+						"angry": "raiva"
 					}
+					if (emotionsObj && typeof emotionsObj === "object") {
+						
+						//imageContainer.style.backgroundImage = `url(${emoImages[task.status]})`;
+						//imageContainer.style.backgroundSize = "cover";
+						//imageContainer.style.backgroundPosition = "center";
+						
+						Object.keys(emotionsObj).forEach(function(emotion) {
+
+							var box = createEl("div", "task-info-emotion-box", emotionTranslations[emotion] || emotion);
+							let color = "white"
+
+							if(emotion == task.status){
+								color = "#f6d84a"
+							}
+							// estilos básicos (ajuste depois via CSS se quiser)
+							setStyles(box, {
+								padding: "6px 10px",
+								borderRadius: "8px", 
+								font: "13px Arial, sans-serif",
+								display: "flex", 
+								marginTop: "4px",
+								width: "100%",
+								alignContent: "flex-start",
+								backgroundColor: color
+							});
+
+							emotionsContainer.appendChild(box);
+					});
+					} else {
+							emotionsContainer.textContent = "Nenhuma emoção detectada";
+					} 
+
+					if (statusValue) {
+						statusValue.textContent = task && task.status ? emotionTranslations[task.status] || task.status : "N/A";
+
+						console.log(imageContainer)
+						imageContainer.src = emoImages[task.status];
+					}
+					if (title) {
+						title.textContent = baseTask && baseTask.taskName ? baseTask.taskName : "";
+					}
+					if (durationValue) {
+						durationValue.textContent =  formatDuration(durationMs);
+					}
+					if (subtaskValue) {
+						subtaskValue.textContent = subtaskCount;
+					}
+					if (currentSubtaskBox) {
+						currentSubtaskBox.style.display = firstSubtask ? "flex" : "none";
+					}
+
+					updateSelectedSubtaskDuration(selectedSubtask || firstSubtask);
+					updateQuestionText(activeTextTask);
+					updateAlternatives(activeTextTask);
+					updateOptionMarkers(activeTextTask ? activeTextTask.selectedAlternative : null);
+					updateSelector(subtasks, selectedSubtask);
 				}
 				,
 				default: {
+			},
+			default: {
 				gridStyles: {
 					gridTemplateColumns: "248px 292px 225px",
 					gridAutoRows: "minmax(54px, 1fr)"
@@ -589,7 +909,20 @@ export function createInfoModal(deps) {
 							durationValue.textContent = formatDuration(durationMs);
 						}
 					}
+				buildContent: function(grid) {
+					createBoxTemplate(grid, {
+						className: "task-info-duration",
+						styles: { gridColumn: "1", gridRow: "1" },
+						elements: [
+							{ className: "task-info-value", styles: baseValueStyles },
+							{ className: "task-info-label", text: "ERRO", styles: baseLabelStyles }
+						]
+					});
+				},
+				updateContent: function(context) {
+					// placeholder for default popup updates
 				}
+			}
 		};
 	}
 
@@ -653,6 +986,7 @@ export function createInfoModal(deps) {
 			template.buildContent(grid);
 		}
 		addButtonListeners();
+		addResizeListener();
 		definePopupTotalSize();
 	}
 
