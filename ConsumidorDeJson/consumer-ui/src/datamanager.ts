@@ -1,5 +1,5 @@
 import axios from 'axios'; 
-import type { APIResult, Content } from './apityping';
+import type { APIResult, Content } from './apityping'; 
 
 export async function fetchFerEmoData(person: string, signal: AbortSignal){
     const videoName = 'video.mp4';
@@ -50,8 +50,7 @@ export async function fetchHrEmoData(method:string, person: string, signal: Abor
         console.error('Error during fetching:', error.message);
     }  
 }
-
-
+ 
 export async function fetchVerticalAxisData(sessionId: string, token:string){ 
     const possibleColumns = ["levels", "Levels", "Scenes", "scenes", "questions", "Questions", "SpeechBubbles", "speechbubbles"];
 
@@ -107,8 +106,8 @@ export async function fetchVerticalAxisData(sessionId: string, token:string){
         console.log(verticalData);
         //CHECAR SE BATE COM OS TIPOS!!!!!!!!!!!!!
         //Mudar dps para varios games (talvez)
-        const game = verticalData.Game[0];
-        //iterar possibleColumns para bater com game (in operator)
+        const game = verticalData.Game[0]; 
+
         for(let column of possibleColumns){
             if(column in game){
  
@@ -125,10 +124,10 @@ export async function fetchVerticalAxisData(sessionId: string, token:string){
         return ['Jogo']
     }
 }
-
+ 
 export async function fetchAllUsersData(sessionId:string, token:string) {
     try{
-        const query = `{
+        const query: string = `{
             node(id: "${sessionId}"){
                 ... on Session{
                     Users{
@@ -137,7 +136,7 @@ export async function fetchAllUsersData(sessionId:string, token:string) {
                     }
                 }
             }
-        }`;
+            }`; 
 
         const verticalSource = 'http://localhost:8085/graphql'
  
@@ -148,6 +147,36 @@ export async function fetchAllUsersData(sessionId:string, token:string) {
         const allUsers = response.data.data.node.Users;     
   
         return allUsers;
+    }
+    catch (error: any) {
+        console.error('Error during fetching:', error.message);
+
+        return [];
+    }
+}
+
+export async function fetchTimePerStep(sessionId:string, token:string) {
+    try{
+        const query = `{
+    node(id: "${sessionId}"){
+        ... on Session{
+              Results{
+                    timePerStep
+                  }
+              }
+        }
+        }`;
+
+        const gqlSource = 'http://localhost:8085/graphql'
+ 
+        const response = await axios.post(gqlSource, {query}, {headers: {
+            Authorization: "Bearer " + token
+        }});
+
+
+        const timePerStepObj: any[] = response.data.data.node.Results;     //arrumar dps
+        const timePerStep =  timePerStepObj.map(res => res.timePerStep);
+        return timePerStep[0];
     }
     catch (error: any) {
         console.error('Error during fetching:', error.message);

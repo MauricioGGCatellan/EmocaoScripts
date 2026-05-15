@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import './App.css';  
 import {jsonToGantt, jsonToAllEmotions, jsonToDuration} from "./converter.ts"; 
 import type { EmoData } from './converter.ts';
-import { fetchAllUsersData, fetchFerEmoData, fetchHrEmoData, fetchVerticalAxisData } from './datamanager.ts';
+import { fetchAllUsersData, fetchFerEmoData, fetchHrEmoData, fetchVerticalAxisData, fetchTimePerStep } from './datamanager.ts';
 import {Select, MenuItem, FormControl, CircularProgress, Box, Typography, ToggleButtonGroup, ToggleButton} from '@mui/material';  
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { GanttChart } from './components/GanttChart.tsx';
@@ -10,9 +10,11 @@ import type {Task} from "./components/GanttChart.tsx";
 import { emotionTranslations } from './translation.ts';
 
 declare const d3: any;
-
+ 
+export type Mode = 'recorded'|'live';
 
 type AppProps = {
+  mode: Mode;
   sessionId: string;
   token: string;
 }
@@ -21,25 +23,20 @@ type User = {
   id: string;
   name: string;
 }
- 
-function App({sessionId, token}: AppProps) {   
+
+function App({mode='recorded', sessionId, token}: AppProps) {   
   const [ganttAllData, setGanttAllData] = useState<Task[]>([]) 
   const [jsonData, setJsonData] = useState<EmoData[]>([])
   const [verticalAxisData, setVerticalAxisData] = useState<string[]>([])
-
   const [dataGantt, setDataGantt] = useState(ganttAllData);
   const [allEmos, setAllEmos] = useState<string[]>([]);
-
   const [allUsers, setAllUsers] = useState<User[]>([]);
-
   const [selectedPerson, setSelectedPerson] = useState<string>("");
-  
   const [method, setMethod] = useState<string>("FER");
-
   const [loading, setLoading] = useState<boolean>(false);
-
   const [duration, setDuration] = useState<number>(0);
- 
+  const [viewMode, setViewMode] = useState<"A" | "B">("B");
+
 	const tableau10 = d3.scale.category10().range(); 
 
   const boxStyle = {
@@ -54,9 +51,7 @@ function App({sessionId, token}: AppProps) {
         width: "100%",
         borderRadius: "4px"
       }
-
-  const [viewMode, setViewMode] = useState<"A" | "B">("B");
-
+ 
   const handleViewChange = (
     event: React.MouseEvent<HTMLElement>,
     newValue: "A" | "B" | null
@@ -91,7 +86,8 @@ function App({sessionId, token}: AppProps) {
         console.log(err)
       }).finally( () => {
         fetchVerticalAxisData(sessionId, token).then((res) => {
-          setVerticalAxisData(res as string[])
+          res.push("Pós-jogo");
+          setVerticalAxisData(res as string[]);
         }).catch(err => {console.log(err)})
           .finally(() => {
           setLoading(false); 
@@ -107,7 +103,8 @@ function App({sessionId, token}: AppProps) {
         console.log(err)
       }).finally( () => {
         fetchVerticalAxisData(sessionId, token).then((res) => {
-          setVerticalAxisData(res as string[])
+          res.push("Pós-jogo");
+          setVerticalAxisData(res as string[]);
         }).catch(err => {console.log(err)})
           .finally(() => {
           setLoading(false); 
@@ -124,9 +121,26 @@ function App({sessionId, token}: AppProps) {
     };
   }, [selectedPerson, method]);
   
-  useEffect(() => {
-    setGanttAllData(jsonToGantt(jsonData, verticalAxisData)); 
-
+  useEffect(() => {   
+    if(mode === 'recorded'){
+      fetchTimePerStep(sessionId, token).then(res => { 
+        const timePerStep: number[] = res; 
+        console.log(timePerStep);
+        setGanttAllData(jsonToGantt(jsonData, verticalAxisData, timePerStep)); 
+      }).catch(err =>{
+        console.log(err);
+      })
+    } else if(mode === 'live'){
+      //Mudar no futuro ao desenvolver esse modo
+    
+      fetchTimePerStep(sessionId, token).then(res => { 
+        const timePerStep = res;
+        setGanttAllData(jsonToGantt(jsonData, verticalAxisData, timePerStep)); 
+      }).catch(err =>{
+        console.log(err);
+      })
+    } 
+     
     const allEmotions = jsonToAllEmotions(jsonData); 
 
     setAllEmos(allEmotions);
@@ -143,6 +157,13 @@ function App({sessionId, token}: AppProps) {
     setDataGantt(ganttAllData);
   }, [ganttAllData])
 
+  useEffect(() => {
+    if(viewMode == "A"){
+      //fetch dado de tds os usuários
+      
+    }
+  }, [viewMode, method])
+
   const handleChange = (event: SelectChangeEvent<string>) => {
     setSelectedPerson(event.target.value);
   };
@@ -155,6 +176,7 @@ function App({sessionId, token}: AppProps) {
     <div className="gantt-container">
       <aside className="gantt-menu">
 
+{/*
       <FormControl fullWidth size="small"  sx={{ gridColumn: "1 / -1" }}> 
         <Box
           sx={{display: "flex",
@@ -195,7 +217,7 @@ function App({sessionId, token}: AppProps) {
         </ToggleButtonGroup>
         </Box>
       </FormControl>
-
+*/}
       <FormControl fullWidth size="small">
         <Box sx={boxStyle}>  
           <Select 
@@ -278,9 +300,16 @@ function App({sessionId, token}: AppProps) {
           </div>
          )  : <div/>
         }
-        
-          <GanttChart tasks={dataGantt} taskNames={verticalAxisData} taskStatus={allEmos}/>
 
+        {
+          viewMode == "A" ?
+          //um por usuario
+          Object.entries(allUsers).map(([_, user], i) => (
+            <GanttChart tasks={dataGantt} taskNames={verticalAxisData} taskStatus={allEmos}/>)
+          )
+          :
+          <GanttChart tasks={dataGantt} taskNames={verticalAxisData} taskStatus={allEmos}/>
+        }
           {!loading && <Box
             sx={{
               position: "absolute",
